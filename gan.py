@@ -320,8 +320,6 @@ plt.show()
 
 
 
-
-
 SEGMENTS = 100
 
 segments = [torch.zeros(1, SEGMENT_SIZE).to(device)]

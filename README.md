@@ -4,11 +4,11 @@ Ivan Montero, Cameron Meissner, Anirudh Canumalla
 
 ## Main TODOs
 - [x] Migrate code to github
-- [ ] Make the code runnable on Windows/MacOS (ivan just copied over the code for the sake of existing)
-- [ ] Write code to transform audio files to npy files, and save them
+- [] Make the code runnable on Windows/MacOS (ivan just copied over the code for the sake of existing)
+- [x] Write code to transform audio files to npy files, and save them
 - [ ] Write seq2seq model
     - [ ] Implement data loader (Ivan)
-    - [ ] Write training code (Cameron)
+    - [x] Write training code (Cameron)
         - Assume data loader gives you two tensors:
             - prev (batch x seq_len_1)
             - next (batch x seq_len_2)
