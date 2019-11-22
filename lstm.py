@@ -196,7 +196,8 @@ class AudioDataset(torch.utils.data.IterableDataset):
             iter_end = min(iter_start + per_worker, len(self.audio))
             return iter(MultiAudioIterator(self.audio[iter_start:iter_end], self.segment_size))
 
-"""# LSTM
+"""
+LSTM
 We have to flesh the section out...
 """
 
