@@ -13,6 +13,10 @@ import numpy as np
 # Loading with torchaudio takes around 43 seconds,
 # loading from npys is significantly faster (fastest run was 18 seconds)
 
+DATA_DIR = "soundcloud/"
+OUTPUT_DIR = "outputs/"
+SONG_NPY_DIR = "npys/"
+
 if len(os.listdir(SONG_NPY_DIR)) == 0:
     # There aren't any npys, so we have to load the data
     # with torchaudio.load and create the npys for future loads
@@ -249,13 +253,6 @@ g_losses = []
 d_losses = []
 
 
-
-# TODO: Start writing evaluation code
-start = time.time()
-
-# l = math.ceil(dataset.length/BATCH_SIZE)
-# print('len= ', l)
-
 for epoch in range(EPOCHS):
   for batch_idx, (prev_, next_) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
     prev_, next_ = prev_.to(device), next_.to(device)
@@ -317,7 +314,6 @@ plt.xlabel('Iteration')
 plt.ylabel('Train loss')
 plt.legend()
 plt.show()
-
 
 
 SEGMENTS = 100
