@@ -27,38 +27,6 @@ NOISE_DIM = int(SAMPLE_RATE/4)
 FEATURE_SIZE = 1
 EPOCHS = 100
 
-"""# Loading the data
-
-Here, we load the data either via torchaudio to create
-a repository of npy files each corresponding to a single song within the dataset, or directly from the existing npy files themselves.
-"""
-
-# Loading with torchaudio takes around 43 seconds,
-# loading from npys is significantly faster (fastest run was 18 seconds)
-
-def load():
-    data = []
-    for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
-        loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)
-        data.append((torch.from_numpy(loaded[0]), loaded[1]))
-
-    return data
-
-
-"""# Preprocessing the data
-Here, we perform all the necessary steps to preprocess the data and define the multi-threaded dataloader for training and testing.
-"""
-
-# TODO: Start creating window pairs out of the data: (prev, next)
-# TODO: Look at any useful transforms of the audio before processing
-# TODO: Make sure all audio has the same sample rate
-# TODO: Explore a feasible window size
-
-# Can make this multithreaded, which we will want to do since each worker will
-# be blocked by the torchaudio.load() call. See:
-# https://pytorch.org/docs/stable/data.html#torch.utils.data.IterableDataset
-
-
 class Seq2SeqAudioModel(nn.Module):
     def __init__(self, feature_size):
         super(Seq2SeqAudioModel, self).__init__()
