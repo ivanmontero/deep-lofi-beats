@@ -36,6 +36,15 @@ DATA_DIR = "soundcloud/"
 OUTPUT_DIR = "outputs/"
 SONG_NPY_DIR = "npys/"
 
+SAMPLE_RATE = 44100 // 4  # Samples per second
+SEGMENT_SIZE = int(SAMPLE_RATE)
+LEARNING_RATE = 0.0002
+WEIGHT_DECAY = 0.0005
+BATCH_SIZE = 4
+NOISE_DIM = int(SAMPLE_RATE/4)
+FEATURE_SIZE = 1
+EPOCHS = 100
+
 """# Loading the data
 
 Here, we load the data either via torchaudio to create
@@ -45,41 +54,44 @@ a repository of npy files each corresponding to a single song within the dataset
 # Loading with torchaudio takes around 43 seconds,
 # loading from npys is significantly faster (fastest run was 18 seconds)
 
-if len(os.listdir(SONG_NPY_DIR)) == 0:
-    # There aren't any npys, so we have to load the data
-    # with torchaudio.load and create the npys for future loads
-    print('Loading data with torchaudio...')
+def load():
+    if len(os.listdir(SONG_NPY_DIR)) == 0:
+        # There aren't any npys, so we have to load the data
+        # with torchaudio.load and create the npys for future loads
+        print('Loading data with torchaudio...')
 
-    # Search the data directory for audio files
-    audio_file_names = []
-    for idx, f in enumerate(os.listdir(DATA_DIR)):
-        audio_file_names.append(os.path.join(DATA_DIR, f))
+        # Search the data directory for audio files
+        audio_file_names = []
+        for idx, f in enumerate(os.listdir(DATA_DIR)):
+            audio_file_names.append(os.path.join(DATA_DIR, f))
 
-    # Load the audio in a multithreaded manner.
-    def load_audio(filename):
-        return torchaudio.load(filename)
+        # Load the audio in a multithreaded manner.
+        def load_audio(filename):
+            return torchaudio.load(filename)
 
-    data = multiprocessing.Pool(os.cpu_count()).map(load_audio, audio_file_names)
+        data = multiprocessing.Pool(os.cpu_count()).map(load_audio, audio_file_names)
 
-    # Save the ndarrays to npys
-    # Need to save array itself and sample
-    # rate in a 'numpy tuple'
-    print('Saving npys...')
-    for idx, d in enumerate(tqdm.tqdm(data)):
-        np_tuple = np.array([d[0].numpy(), d[1]])
-        np.save(os.path.join(SONG_NPY_DIR, 'song{}'.format(idx+1)), np_tuple)
+        # Save the ndarrays to npys
+        # Need to save array itself and sample
+        # rate in a 'numpy tuple'
+        print('Saving npys...')
+        for idx, d in enumerate(tqdm.tqdm(data)):
+            np_tuple = np.array([d[0].numpy(), d[1]])
+            np.save(os.path.join(SONG_NPY_DIR, 'song{}'.format(idx+1)), np_tuple)
 
-else:
-    # We have npys we can read from, so lets do that
-    print('Reading data from npy files...')
+    else:
+        # We have npys we can read from, so lets do that
+        print('Reading data from npy files...')
 
-    data = []
-    for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
-        loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)
-        data.append((torch.from_numpy(loaded[0]), loaded[1]))
+        data = []
+        for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
+            loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)
+            data.append((torch.from_numpy(loaded[0]), loaded[1]))
+
+    return data
+
 
 """# Preprocessing the data
-
 Here, we perform all the necessary steps to preprocess the data and define the multi-threaded dataloader for training and testing.
 """
 
@@ -235,48 +247,47 @@ class Seq2SeqAudioModel(nn.Module):
 
 """# Training the LSTM"""
 
-SAMPLE_RATE = 44100 // 4  # Samples per second
-SEGMENT_SIZE = int(SAMPLE_RATE)
-LEARNING_RATE = 0.0002
-WEIGHT_DECAY = 0.0005
-BATCH_SIZE = 4
-NOISE_DIM = int(SAMPLE_RATE/4)
-FEATURE_SIZE = 1
-EPOCHS = 100
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-dataset = AudioDataset(data, SEGMENT_SIZE, SAMPLE_RATE)
+def train(data):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    dataset = AudioDataset(data, SEGMENT_SIZE, SAMPLE_RATE)
 
-train_loader = torch.utils.data.DataLoader(dataset,
-                                           batch_size=BATCH_SIZE,
-                                           num_workers=os.cpu_count())
+    train_loader = torch.utils.data.DataLoader(dataset,
+                                               batch_size=BATCH_SIZE,
+                                               num_workers=os.cpu_count())
 
-model = Seq2SeqAudioModel(FEATURE_SIZE)
+    model = Seq2SeqAudioModel(FEATURE_SIZE)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
-losses = []
+    losses = []
 
-for epoch in range(EPOCHS):
-    batch_losses = []
-    for batch_idx, (prev_sequence, next_sequence) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
-        prev_sequence, next_sequence = prev_sequence.to(device), next_sequence.to(device)
+    for epoch in range(EPOCHS):
+        batch_losses = []
+        for batch_idx, (prev_sequence, next_sequence) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
+            prev_sequence, next_sequence = prev_sequence.to(device), next_sequence.to(device)
 
-        optimizer.zero_grad()
-        predicted_next_sequence, hidden = model(prev_sequence)
+            optimizer.zero_grad()
+            predicted_next_sequence, hidden = model(prev_sequence)
 
-        loss = model.loss(predicted_next_sequence, next_sequence)
-        loss.backward()
-        optimizer.step()
-        batch_losses.append(loss)
-    avg_batch_loss = np.mean(batch_losses)
-    losses.append(avg_batch_loss)
-    print(f'[Epoch: {epoch+1}] [Loss: {avg_batch_loss}]')
+            loss = model.loss(predicted_next_sequence, next_sequence)
+            loss.backward()
+            optimizer.step()
+            batch_losses.append(loss)
+        avg_batch_loss = np.mean(batch_losses)
+        losses.append(avg_batch_loss)
+        print(f'[Epoch: {epoch+1}] [Loss: {avg_batch_loss}]')
 
 
-plt.plot(np.arange(len(losses)), losses)
-plt.title('Train Loss vs. Epochs')
-plt.xlabel('Epoch')
-plt.ylabel('Train loss')
-plt.legend()
-plt.show()
+    plt.plot(np.arange(len(losses)), losses)
+    plt.title('Train Loss vs. Epochs')
+    plt.xlabel('Epoch')
+    plt.ylabel('Train loss')
+    plt.legend()
+    plt.show()
+
+
+if __name__ == '__main__':
+    data = load()
+    train(data)
+
