@@ -12,14 +12,14 @@ def get_batch(data, max_len, batch_size, device):
     len1 = random.randint(1, max_len - 1)
     len2 = random.randint(1, max_len - len1)
 
-    p, n = np.zeros(batch_size, len1), np.zeros(batch_size, len2)
+    p, n = np.zeros((batch_size, len1)), np.zeros((batch_size, len2))
 
     for i in range(batch_size):
-        start = random.randint(0, batch[i].shape[0] - len2 - len2)
+        start = random.randint(0, batch[i].shape[0] - len1 - len2)
         p[i] = batch[i][start:start+len1]
         n[i] = batch[i][start+len1:start+len1+len2]
 
-    return torch.tensor(p).to(device), torch.tensor(n).to(device)
+    return torch.tensor(p).to(device).float(), torch.tensor(n).to(device).float()
 
 
 # === below is gan ===

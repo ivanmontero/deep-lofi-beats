@@ -15,9 +15,12 @@ def load():
     print('Reading data from npy files...')
 
     data = []
+    sample_rates = []
     for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
         loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)
-        data.append((torch.from_numpy(loaded[0]), loaded[1]))
+        data.append(loaded[0][0])
+        sample_rates.append(loaded[1])
 
-    return data
+    return np.array(data), np.array(sample_rates)
+
 
