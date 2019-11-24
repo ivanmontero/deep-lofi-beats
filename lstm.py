@@ -15,20 +15,12 @@ from loader import load
 from audio_processing import get_batch
 import random
 
-# DATA_DIR = "soundcloud/"
-# OUTPUT_DIR = "outputs/"
-# SONG_NPY_DIR = "npys/"
-
-# Cam: Ani - I tried implementing this with my interpretation of what
-# we talked about earlier. Prob gonna have to fix, but this should be a start
 SAMPLE_RATE = 44100  # Samples per second
-MAX_LEN = int(SAMPLE_RATE * 4) # 4 seconds max length for sequence
-# SEGMENT_SIZE = int(SAMPLE_RATE)
+MAX_LEN = int(SAMPLE_RATE * 0.01) # 4 seconds max length for sequence
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
-BATCH_SIZE = 512
-NOISE_DIM = int(SAMPLE_RATE/4)
-HIDDEN_SIZE = 1
+BATCH_SIZE = 64
+HIDDEN_SIZE = 512
 EPOCHS = 100
 SEQ_IN_EPOCH = 10000
 
@@ -38,14 +30,11 @@ class Seq2Seq(nn.Module):
         self.hidden_size = hidden_size
         self.encoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True)
         self.decoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True)
-        self.fc1 = nn.Linear(self.hidden_size, 1)
+        self.fc = nn.Linear(self.hidden_size, 1)
         self.device = device
         self.teacher_forcing_ratio = 0.5
 
     def forward(self, prev, next):
-        # output, hidden = self.lstm(prev, hidden)
-        # output = self.fc1(output)
-        # return output, hidden
         encoded = self.encode(prev)
         return self.decode_train(encoded, next)
 
@@ -64,8 +53,10 @@ class Seq2Seq(nn.Module):
         next_input = torch.zeros(n.shape[0], 1, 1)
         for t in range(n.shape[1]):
             output, hidden = self.decoder(next_input, hidden)
+
+            pred = self.fc(output.view(n.shape[0], self.hidden_size))
             
-            predictions.append(output.view(n.shape[0], 1))
+            predictions.append(pred.view(n.shape[0], 1))
 
             if random.random() < self.teacher_forcing_ratio:
                 next_input = n[:,t].reshape(n.shape[0], 1, 1)
@@ -83,7 +74,9 @@ class Seq2Seq(nn.Module):
         for t in range(length):
             output, hidden = self.decoder(next_input, hidden)
             
-            predictions.append(output.view(hidden.shape[0], 1))
+            pred = self.fc(output.view(n.shape[0], self.hidden_size))
+            
+            predictions.append(pred.view(n.shape[0], 1))
 
             next_input = predictions[-1].view(hidden.shape[0], 1, 1)
         
@@ -106,9 +99,7 @@ def train(data):
 
     for epoch in range(EPOCHS):
         batch_losses = []
-        # for batch_idx, (prev_sequence, next_sequence) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
         for i in range(SEQ_IN_EPOCH):
-            # prev_sequence, next_sequence = prev_sequence.to(device), next_sequence.to(device)
             p, n = get_batch(data, MAX_LEN, BATCH_SIZE, device)
 
             optimizer.zero_grad()
