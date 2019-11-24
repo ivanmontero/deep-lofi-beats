@@ -15,12 +15,13 @@ from loader import load
 from audio_processing import get_batch
 import random
 
-SAMPLE_RATE = 44100  # Samples per second
-MAX_LEN = int(SAMPLE_RATE * 0.01) # 4 seconds max length for sequence
+# TODO: Play with below
+SAMPLE_RATE = 44100  # Samples per second. Must match data
+MAX_LEN = int(SAMPLE_RATE * 4) # 4 seconds max length for sequence
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
-BATCH_SIZE = 64
-HIDDEN_SIZE = 512
+BATCH_SIZE = 1
+HIDDEN_SIZE = 2048
 EPOCHS = 100
 SEQ_IN_EPOCH = 10000
 
