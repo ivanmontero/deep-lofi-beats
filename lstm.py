@@ -12,7 +12,7 @@ import math
 import tqdm
 import numpy as np
 from loader import load
-from audio_processing import AudioDataset
+from audio_processing import get_batch
 
 # DATA_DIR = "soundcloud/"
 # OUTPUT_DIR = "outputs/"
@@ -20,120 +20,99 @@ from audio_processing import AudioDataset
 
 # Cam: Ani - I tried implementing this with my interpretation of what
 # we talked about earlier. Prob gonna have to fix, but this should be a start
-SAMPLE_RATE = 44100 // 4  # Samples per second
-SEGMENT_SIZE = int(SAMPLE_RATE)
-LEARNING_RATE = 0.0002
+SAMPLE_RATE = 44100  # Samples per second
+MAX_LEN = SAMPLE_RATE * 4 # 4 seconds max length for sequence
+# SEGMENT_SIZE = int(SAMPLE_RATE)
+LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
-BATCH_SIZE = 4
+BATCH_SIZE = 100
 NOISE_DIM = int(SAMPLE_RATE/4)
-FEATURE_SIZE = 1
+HIDDEN_SIZE = 1
 EPOCHS = 100
+SEQ_IN_EPOCH = 1e5
 
-class EncoderRNN(nn.Module):
-    def __init__(self, input_size, feature_size):
-        self.input_size = input_size # instead of vocab size
-        self.feature_size = feature_size
-        #vself.embedding = nn.Embedding(input_size, self.feature_size)
-        self.lstm = nn.LSTM(self.input_size, self.feature_size, num_layers=2, batch_first=True)
+class Seq2Seq(nn.Module):
+    def __init__(self, hidden_size, device):
+        self.hidden_size = hidden_size
+        self.encoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True)
+        self.decoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True)
+        self.fc1 = nn.Linear(self.hidden_size, 1)
+        self.device = device
+        self.teacher_forcing_ratio = 0.5
 
-    def forward(self, sample, hidden):
-        # embedded = self.embedding(sample)
-        # output = embedded
-        output, hidden = self.lstm(sample, hidden)
-        return output, hidden
-
-
-class DecoderRNN(nn.Module):
-    def __init__(self, feature_size):
-        self.feature_size = feature_size
-        self.lstm = nn.LSTM(self.feature_size, self.feature_size, batch_first=True)
-        self.fc1 = nn.Linear(self.feature_size, 1) # should we be returning decoder hidden
-
-    def forward(self, prev, hidden):
+    def forward(self, prev, next):
         output, hidden = self.lstm(prev, hidden)
         output = self.fc1(output)
         return output, hidden
 
-class Seq2SeqAudioNet(nn.Module):
-    def __init__(self,  encoder, decoder):
-        super(Seq2SeqAudioNet, self).__init__()
-        self.encoderRNN = encoder
-        self.decoderRNN = decoder
+    def encode(self, prev):
+        hidden =  ( torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
+                    torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
+        for t in range(prev.shape[1]):
+            _, hidden = self.encoder(prev[t], hidden)
 
-    def forward(self, prev_seq):
-        hidden = None
-        for sample in torch.squeeze(prev_seq):
-            _, hidden = self.encoderRNN(sample, hidden)
-        output, decoder_hidden = self.decoderRNN(prev_seq, hidden)
-        return output, decoder_hidden # should we be returning decoder hidden
+        return hidden
+    
+    def decode_train(self, hidden, n):
+        predictions = []
 
-    def loss(self, prediction, label):
-        # prediction and label size is single float in a tensor
-        return F.cross_entropy(prediction, label)
+        next_input = torch.zeros(n.shape[0], 1, 1)
+        for t in range(n.shape[1]):
+            output, hidden = self.decoder(next_input, hidden)
+            
+            predictions.append(output.view(n.shape[0], 1))
 
+            if random.random() < self.teacher_forcing_ratio:
+                next_input = n[:,t].reshape(n.shape[0], 1, 1)
+            else:
+                next_input = predictions[-1].view(n.shape[0], 1, 1)
+        
+        predictions = torch.stack(predictions).permute(1, 0, 2)
 
-# class Seq2SeqAudioModel(nn.Module):
-#     def __init__(self, encoder, decoder):
-#         super(Seq2SeqAudioModel, self).__init__()
-#         self.encoderRNN = encoder
-#         self.decoderRNN = decoder
-#         # self.feature_size = feature_size
-#         #
-#         # # Encoder: stacked unidirectional LSTM
-#         # self.encoder = nn.LSTM(self.feature_size, self.feature_size, num_layers=2, batch_first=True)
-#         #
-#         # # Decoder: stacked unidirectional LSTM
-#         # self.decoder = nn.LSTM(self.feature_size, self.feature_size, num_layers=2, batch_first=True)
-#         #
-#         # # Fully connected layer to transform decoder outputs to a single float
-#         # self.dense_layer = nn.Linear(self.feature_size, 1)
-#
-#     def forward(self, prev_sequence):
-#         hidden = self.run_encoder(prev_sequence)
-#         x = self.decoder(prev_sequence, hidden)
-#         x = self.dense_layer(x)
-#
-#     def run_encoder(self, prev_sequence):
-#         """
-#         Returns the final hidden state of the encoder after
-#         running over the entire previous sequence
-#         """
-#         hidden = None
-#         for sample in torch.squeeze(prev_sequence):
-#             _, hidden = self.encoder(sample, hidden)
-#         return hidden
-#
-#     # Predefined loss function
-#     def loss(self, prediction, label, reduction='mean'):
-#         return F.cross_entropy(prediction.view(-1, self.vocab_size), label.view(-1), reduction=reduction)
+        return predictions
+    
+    def decode(self, hidden, length):
+        predictions = []
 
+        next_input = torch.zeros(hidden.shape[0], 1, 1)
+        for t in range(length):
+            output, hidden = self.decoder(next_input, hidden)
+            
+            predictions.append(output.view(hidden.shape[0], 1))
+
+            next_input = predictions[-1].view(hidden.shape[0], 1, 1)
+        
+        predictions = torch.stack(predictions).permute(1, 0, 2)
+
+        return predictions
 
 def train(data):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    dataset = AudioDataset(data, SEGMENT_SIZE, SAMPLE_RATE)
-    train_loader = torch.utils.data.DataLoader(dataset,
-                                               batch_size=BATCH_SIZE,
-                                               num_workers=os.cpu_count())
 
-    model = Seq2SeqAudioModel(FEATURE_SIZE)
+    data = load()
+
+    model = Seq2SeqAudioModel(HIDDEN_SIZE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     losses = []
 
     for epoch in range(EPOCHS):
         batch_losses = []
-        for batch_idx, (prev_sequence, next_sequence) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
-            prev_sequence, next_sequence = prev_sequence.to(device), next_sequence.to(device)
+        # for batch_idx, (prev_sequence, next_sequence) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
+        for i in range(SEQ_IN_EPOCH):
+            # prev_sequence, next_sequence = prev_sequence.to(device), next_sequence.to(device)
+            p, n = get_batch(data, MAX_LEN, BATCH_SIZE, device)
 
             optimizer.zero_grad()
-            predicted_next_sequence, hidden = model(prev_sequence)
+            pred_n, hidden = model(p)
 
-            loss = model.loss(predicted_next_sequence, next_sequence)
+            loss = model.loss(pred_n, n)
+            print(loss)
             loss.backward()
             optimizer.step()
             batch_losses.append(loss)
         avg_batch_loss = np.mean(batch_losses)
         losses.append(avg_batch_loss)
-        print(f'[Epoch: {epoch+1}] [Loss: {avg_batch_loss}]')
+        print(f"[Epoch: {epoch+1}] [Loss: {avg_batch_loss}]")
 
     plt.plot(np.arange(len(losses)), losses)
     plt.title('Train Loss vs. Epochs')
@@ -142,8 +121,10 @@ def train(data):
     plt.legend()
     plt.show()
 
+    return model
+
 
 if __name__ == '__main__':
     data = load()
-    train(data)
-
+    model = train(data)
+    torch.save(model.state_dict(), "lstm.pt")

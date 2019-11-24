@@ -9,6 +9,7 @@ OUTPUT_DIR = "outputs/"
 SONG_NPY_DIR = "npys/"
 
 
+# TODO: Create .npy files that are downsampled (see colab)
 def load():
     # We have npys we can read from, so lets do that
     print('Reading data from npy files...')
