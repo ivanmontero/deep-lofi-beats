@@ -15,10 +15,10 @@ import random
 
 # TODO: Play with below
 SAMPLE_RATE = 44100  # Samples per second. Must match data
-MAX_LEN = int(SAMPLE_RATE * 4)  # 4 seconds max length for sequence
+MAX_LEN = int(SAMPLE_RATE * 2)  # 2 seconds max length for sequence
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
-BATCH_SIZE = 1
+BATCH_SIZE = 8
 HIDDEN_SIZE = 128
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
@@ -38,11 +38,21 @@ class Seq2Seq(nn.Module):
         encoded = self.encode(prev)
         return self.decode_train(encoded, next)
 
+    def inference(self, prev, next_len):
+        """
+        For running inference on unknown sequences.
+        Should be used outside of training.
+        """
+        print('encoding...')
+        encoded = self.encode(prev)
+        print('decoding...')
+        return self.decode(encoded, next_len)
+
     def encode(self, prev):
         hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
                   torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
 
-        for t in range(prev.shape[1]):
+        for t in tqdm.tqdm(range(prev.shape[1])):
             _, hidden = self.encoder(prev[:, t].view(prev.shape[0], 1, 1), hidden)
 
         return hidden
@@ -53,7 +63,6 @@ class Seq2Seq(nn.Module):
         next_input = torch.zeros(n.shape[0], 1, 1, device=self.device)
         for t in range(n.shape[1]):
             output, hidden = self.decoder(next_input, hidden)
-            # output, hidden = output.to(self.device), hidden.to(self.device)
 
             pred = self.fc(output.view(n.shape[0], self.hidden_size))
             
@@ -69,17 +78,19 @@ class Seq2Seq(nn.Module):
         return predictions
     
     def decode(self, hidden, length):
+
         predictions = []
 
-        next_input = torch.zeros(hidden.shape[0], 1, 1)
+        next_input = torch.zeros(hidden[0].shape[0], 1, 1, device=self.device)
+
         for t in range(length):
             output, hidden = self.decoder(next_input, hidden)
-            
-            pred = self.fc(output.view(length.shape[0], self.hidden_size))
-            
-            predictions.append(pred.view(length.shape[0], 1))
 
-            next_input = predictions[-1].view(hidden.shape[0], 1, 1)
+            pred = self.fc(output.view(1, self.hidden_size))
+
+            predictions.append(pred)
+
+            next_input = predictions[-1].view(hidden[0].shape[0], 1, 1)
         
         predictions = torch.stack(predictions).permute(1, 0, 2).view(next_input.shape[0], length)
 
