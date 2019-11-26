@@ -78,11 +78,9 @@ class Seq2Seq(nn.Module):
         return predictions
     
     def decode(self, hidden, length):
-
         predictions = []
 
-        next_input = torch.zeros(hidden[0].shape[0], 1, 1, device=self.device)
-
+        next_input = torch.zeros(hidden.shape[0], 1, 1, device=self.device)
         for t in range(length):
             output, hidden = self.decoder(next_input, hidden)
 
@@ -91,6 +89,7 @@ class Seq2Seq(nn.Module):
             predictions.append(pred)
 
             next_input = predictions[-1].view(hidden[0].shape[0], 1, 1)
+            print('pass')
         
         predictions = torch.stack(predictions).permute(1, 0, 2).view(next_input.shape[0], length)
 
