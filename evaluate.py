@@ -3,6 +3,8 @@ import numpy as np
 from lstm import Seq2Seq, HIDDEN_SIZE
 from loader import SONG_NPY_DIR, OUTPUT_DIR
 import os
+from loader import load
+from audio_processing import get_batch
 
 TRAINED_STATE = 'checkpoints/lstm_final.pt'
 
@@ -17,38 +19,77 @@ def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print('Using device: {}'.format(device))
 
-    audio, samples_per_second = np.load(
-        os.path.join(SONG_NPY_DIR, np.random.choice(os.listdir(SONG_NPY_DIR), 1)[0]),
-        allow_pickle=True)
-
-    print(audio.shape)
-    # Get the left channel of audio
-    audio = audio[0].reshape(1, -1)
-
-    print(audio.shape, samples_per_second)
-
-    audio = torch.from_numpy(audio)
+    data, sample_rates = load()
     # 10 seconds of audio
-    seq_len = 1 * samples_per_second
-
-    # Get 0s - 30s in the input song
-    # and predict 30s - 40s
-    model_input = audio[:, :1*samples_per_second].to(device)
-    print(model_input.size())
+    seq_len = 30 * sample_rates[0]
 
     print('Loading trained model...')
     model = load_model_from_checkpoint(TRAINED_STATE, device)
     print('Performing inference...')
 
-    pred = model.inference(model_input, seq_len).numpy()
-    print(pred.shape)
+    prev, _ = get_batch(data, sample_rates[0]*3, 1, device)
 
-    np.save(os.path.join(OUTPUT_DIR, 'prediction.npy'), pred)
-    return pred
+    hidden = model.encode(prev)
+
+    audio = model.decode(hidden, seq_len)
+
+    np.save(os.path.join(OUTPUT_DIR, 'prediction.npy'), audio[0])
+    return audio
 
 
 if __name__ == '__main__':
     pred = main()
     print(pred)
 
+
+
+
+
+# def train(data):
+#     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+#     print('Using device: {}'.format(device))
+
+#     data, sample_rates = data
+
+#     # print(data.shape)
+
+#     model = Seq2Seq(HIDDEN_SIZE, device)
+#     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+#     losses = []
+#     all_losses = []
+
+#     for epoch in range(EPOCHS):
+#         batch_losses = []
+#         for _ in tqdm.tqdm(range(SEQ_IN_EPOCH)):
+#             p, n = get_batch(data, MAX_LEN, BATCH_SIZE, device)
+
+#             optimizer.zero_grad()
+#             pred_n = model(p, n)
+
+#             loss = model.loss(pred_n, n)
+#             print(loss)
+#             loss.backward()
+#             optimizer.step()
+#             all_losses.append(loss.detach().item())
+#             batch_losses.append(loss.detach().item())
+#         avg_batch_loss = np.mean(batch_losses)
+#         losses.append(np.mean(batch_losses))
+#         print(f"[Epoch: {epoch+1}] [Loss: {avg_batch_loss}]")
+#         torch.save(model.state_dict(), "checkpoints/lstm{}.pt".format(epoch+1))
+
+#     plt.plot(np.arange(len(losses)), losses)
+#     plt.title('Train Loss vs. Epochs')
+#     plt.xlabel('Epoch')
+#     plt.ylabel('Train loss')
+#     plt.legend()
+#     plt.show()
+
+#     return model
+
+
+# if __name__ == '__main__':
+#     audio_data = load()
+#     model = train(audio_data)
+#     torch.save(model.state_dict(), "checkpoints/lstm_final.pt")
 
