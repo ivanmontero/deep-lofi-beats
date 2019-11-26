@@ -22,6 +22,7 @@ def main():
         allow_pickle=True)
 
     print(audio.shape)
+
     # Get the left channel of audio
     audio = audio[0].reshape(1, -1)
 
