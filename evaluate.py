@@ -11,7 +11,7 @@ TRAINED_STATE = 'checkpoints/lstm_final.pt'
 
 def load_model_from_checkpoint(checkpoint, device):
     model = Seq2Seq(HIDDEN_SIZE, device)
-    model.load_state_dict(torch.load(checkpoint))
+    model.load_state_dict(torch.load(checkpoint, map_location=device))
     return model
 
 
@@ -27,12 +27,15 @@ def main():
     model = load_model_from_checkpoint(TRAINED_STATE, device)
     print('Performing inference...')
 
-    prev, _ = get_batch(data, sample_rates[0]*3, 1, device)
+    prev, _ = get_batch(data, sample_rates[0]//2, 1, device)
 
+    print('Encoding seed sequence')
     hidden = model.encode(prev)
 
+    print('Producing sequence')
     audio = model.decode(hidden, seq_len)
 
+    print('Saving result')
     np.save(os.path.join(OUTPUT_DIR, 'prediction.npy'), audio[0])
     return audio
 

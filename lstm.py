@@ -80,16 +80,15 @@ class Seq2Seq(nn.Module):
     def decode(self, hidden, length):
         predictions = []
 
-        next_input = torch.zeros(hidden.shape[0], 1, 1, device=self.device)
-        for t in range(length):
+        next_input = torch.zeros(hidden[0].shape[1], 1, 1, device=self.device)
+        for t in tqdm.tqdm(range(length)):
             output, hidden = self.decoder(next_input, hidden)
 
             pred = self.fc(output.view(1, self.hidden_size))
 
             predictions.append(pred)
 
-            next_input = predictions[-1].view(hidden[0].shape[0], 1, 1)
-            print('pass')
+            next_input = predictions[-1].view(hidden[0].shape[1], 1, 1)
         
         predictions = torch.stack(predictions).permute(1, 0, 2).view(next_input.shape[0], length)
 
