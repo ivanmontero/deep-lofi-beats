@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import tqdm
 import numpy as np
-from loader import load
+from loader import load, load_multisampled
 from audio_processing import get_batch
 import random
 
@@ -17,7 +17,7 @@ import random
 SAMPLE_RATE = 44100  # Samples per second. Must match data
 MAX_LEN = int(SAMPLE_RATE * 2)  # 2 seconds max length for sequence
 LEARNING_RATE = 0.001
-WEIGHT_DECAY = 0.0005
+WEIGHT_DECAY = 0.00005
 BATCH_SIZE = 8
 HIDDEN_SIZE = 128
 EPOCHS = 10
@@ -51,11 +51,11 @@ class Seq2Seq(nn.Module):
         hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
                   torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
 
-        for t in tqdm.tqdm(range(prev.shape[1])):
+        for t in range(prev.shape[1]):
             _, hidden = self.encoder(prev[:, t].view(prev.shape[0], 1, 1), hidden)
 
         return hidden
-    
+
     def decode_train(self, hidden, n):
         predictions = []
 
@@ -64,7 +64,7 @@ class Seq2Seq(nn.Module):
             output, hidden = self.decoder(next_input, hidden)
 
             pred = self.fc(output.view(n.shape[0], self.hidden_size))
-            
+
             predictions.append(pred.view(n.shape[0], 1))
 
             if random.random() < self.teacher_forcing_ratio:
@@ -80,7 +80,7 @@ class Seq2Seq(nn.Module):
         predictions = []
 
         next_input = torch.zeros(hidden[0].shape[1], 1, 1, device=self.device)
-        for t in tqdm.tqdm(range(length)):
+        for _ in range(length):
             output, hidden = self.decoder(next_input, hidden)
 
             pred = self.fc(output.view(1, self.hidden_size))
@@ -97,14 +97,13 @@ class Seq2Seq(nn.Module):
         return F.mse_loss(pred, real)
 
 
-def train(data):
+def train(data, sample_rate=SAMPLE_RATE):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
     print('Using device: {}'.format(device))
 
-    data, sample_rates = data
+    # data, sample_rates = data
 
-    # print(data.shape)
+    data = np.array(list(map(lambda audio: audio[str(sample_rate)][0], data)))
 
     model = Seq2Seq(HIDDEN_SIZE, device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
@@ -141,6 +140,7 @@ def train(data):
 
 
 if __name__ == '__main__':
-    audio_data = load()
-    model = train(audio_data)
+    # audio_data = load()
+    audio_data = load_multisampled()
+    model = train(audio_data, sample_rate=SAMPLE_RATE//10)
     torch.save(model.state_dict(), "checkpoints/lstm_final.pt")
