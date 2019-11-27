@@ -33,14 +33,19 @@ class ConvSeq2Seq(nn.Module):
         #TODO: can we get away with not moving any of this stuff to the GPU? @Cameron
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
-        self.conv1 = nn.Conv1d(1, 20, kernel_size=21, stride=21).to(device)
-        self.conv2 = nn.Conv1d(20, 64, kernel_size=21, stride=21).to(device)
-        self.rnn_encoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
-        # self.bnorm1 = nn.BatchNorm1d(64).to(device)
+        self.c_int_sum= 16  # channels intermediate summary
+        self.c_sum = 64     # channels summarized
 
-        self.deconv1 = nn.ConvTranspose1d(64, 20, kernel_size=21, stride=21).to(device)
-        self.deconv2 = nn.ConvTranspose1d(20, 1, kernel_size=21, stride=21).to(device)
-        self.rnn_decoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
+        self.conv1 = nn.Conv1d(1, self.c_int_sum, kernel_size=21, stride=21).to(device)
+        self.conv2 = nn.Conv1d(self.c_int_sum, self.c_sum, kernel_size=21, stride=21).to(device)
+        # self.bnorm1 = nn.BatchNorm1d(64).to(device)
+        # TODO: How to think about input_size relative to the number of output channels from the conv layers
+        self.rnn_encoder = nn.LSTM(self.c_sum, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
+        self.rnn_decoder = nn.LSTM(self.c_sum, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
+
+        self.deconv1 = nn.ConvTranspose1d(self.c_sum, self.c_int_sum, kernel_size=21, stride=21).to(device)
+        self.deconv2 = nn.ConvTranspose1d(self.c_int_sum, 1, kernel_size=21, stride=21).to(device)
+
         self.fc1 = nn.Linear(self.hidden_size, 1).to(device)
 
         self.device = device
@@ -72,47 +77,48 @@ class ConvSeq2Seq(nn.Module):
         encoded = self.encoder(prev_tensor)
         decoded = self.decoder_train(encoded, next_tensor)
         return decoded
+    
+    # Summarizes raw audio
+    
+        # x = x.view(x.shape[0], 1, -1)
+    # in: (batch_size, 1, seq_len)
+    # out: (batch_size, 1, seq_len // (21*21))
+    def summarize(x):
+        # Resize to fit into conv layer
+        x = self.conv1(x)
+        x = self.conv2(x)
+        return x
+    
+    # in: (batch_size, 1, seq_len // (21*21))
+    # out: (batch_size, 1, seq_len)
+    def desummarize(x):
+        x = self.deconv1(x)
+        x = self.deconv2(x)
+        return x
 
-    def encoder(self, prev):
-        """
-        Same idea as encode except conforms to architecture we discussed
-        :return: hidden state
-        """
-        hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
-                  torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
-        for step in tqdm.tqdm(range(prev.shape[1]):
-            x = self.conv1(prev)
-            x = self.conv2(prev)
-            _, hidden = self.rnn_encoder(prev[:, step].view(prev.shape[0], 1, 1), hidden)
-        return hidden
-
-    def decoder_train(self, hidden, next_tensor):
-        """
-        """
-        predictions = []
-        next_input = torch.zeros(next_tensor.shape[0], 1, 1, device=self.device)
-        for t in range(next_tensor.shape[1]):
-            output, hidden = self.rnn_decoder(next_input, hidden)
-
-            pred = self.fc(output.view(next_tensor.shape[0], self.hidden_size))
-
-            predictions.append(pred.view(next_tensor.shape[0], 1))
-
-            if random.random() < self.teacher_forcing_ratio:
-                next_input = next_tensor[:, t].reshape(next_tensor.shape[0], 1, 1)
-            else:
-                next_input = predictions[-1].view(next_tensor.shape[0], 1, 1)
-
-        predictions = torch.stack(predictions).permute(1, 0, 2).view(next_tensor.shape)
-        return predictions
 
     def encode(self, prev):
-        # TODO: delete once encoder method starts to work
-        hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
-                  torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
+        """
+        print(prev.shape)
+        shrunk_prev = self.conv1(prev)
+        shrunk_prev = self.conv2(prev)
+        encoded = self.encode(shrunk_prev)
+        encoded = self.deconv1(encoded)
+        encoded = self.deconv2(encoded)
+        print(encoded.shape)
+        print(prev.shape == encoded.shape)
+        return self.decode_train(encoded, next)
+        """
+        # hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
+        #           torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
 
-        for t in tqdm.tqdm(range(prev.shape[1])):
-            _, hidden = self.rnn_encoder(prev[:, t].view(prev.shape[0], 1, 1), hidden)
+        # for t in tqdm.tqdm(range(prev.shape[1])):
+        #     _, hidden = self.rnn_encoder(prev[:, t].view(prev.shape[0], 1, 1), hidden)
+
+        x = self.summarize(x)
+        # x of shape (batch_size, )
+
+        # This hopefully wont hit a cuda error
 
         return hidden
 
