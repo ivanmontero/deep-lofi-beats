@@ -61,7 +61,7 @@ class ConvSeq2Seq(nn.Module):
         encoded = self.deconv2(encoded)
         print(encoded.shape)
         print(prev.shape == encoded.shape)
-        return self.decode(encoded, next)
+        return self.decode_train(encoded, next)
 
     def encode(self, prev):
         hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
@@ -90,7 +90,7 @@ class ConvSeq2Seq(nn.Module):
 
         next_input = torch.zeros(n.shape[0], 1, 1, device=self.device)
         for t in range(n.shape[1]):
-            output, hidden = self.decoder(next_input, hidden)
+            output, hidden = self.rnn_decoder(next_input, hidden)
 
             pred = self.fc(output.view(n.shape[0], self.hidden_size))
 
