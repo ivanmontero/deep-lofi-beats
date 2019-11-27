@@ -31,29 +31,49 @@ class ConvSeq2Seq(nn.Module):
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
         # TODO: best kind of out channels?
-        self.conv1 = nn.Conv1d(1, 20, kernel_size=21, stride=21).to(device)
-        self.conv2 = nn.Conv1d(20, 64, kernel_size=21, stride=21).to(device)
+        self.conv1 = nn.Conv1d(1, 20, kernel_size=21).to(device)
+        self.conv2 = nn.Conv1d(20, 64, kernel_size=21).to(device)
         # self.bnorm1 = nn.BatchNorm1d(64).to(device)
         # TODO: How to think about input_size relative to the number of output channels from the conv layers
         self.rnn_encoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
         self.rnn_decoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
 
-        self.deconv1 = nn.ConvTranspose1d(64, 20, kernel_size=21, stride=21).to(device)
-        self.deconv2 = nn.ConvTranspose1d(20, 1, kernel_size=21, stride=21).to(device)
+        self.deconv1 = nn.ConvTranspose1d(64, 20, kernel_size=21).to(device)
+        self.deconv2 = nn.ConvTranspose1d(20, 1, kernel_size=21).to(device)
 
         self.fc1 = nn.Linear(self.hidden_size, 1).to(device)
 
         self.device = device
         self.teacher_forcing_ratio = 0.5
 
-    def forward(self, prev, next, train=False):
+    def forward(self, prev, next):
         """
 
         Run conv layers, then process prev into encode? or are we looping inside encode over
         conv layer
         """
-        pass
+        print(prev.shape)
+        shrunk_prev = self.conv1(prev)
+        shrunk_prev = self.conv2(prev)
+        encoded = self.encode(shrunk_prev)
+        encoded = self.deconv1(encoded)
+        encoded = self.deconv2(encoded)
+        print(encoded.shape)
+        print(prev.shape == encoded.shape)
+        return self.decode(encoded, next)
 
+    def encode(self, prev):
+        hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
+                  torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
+
+        for t in tqdm.tqdm(range(prev.shape[1])):
+            _, hidden = self.rnn_encoder(prev[:, t].view(prev.shape[0], 1, 1), hidden)
+
+        return hidden
+
+    def inference(self, prev, next_len):
+        encoded = self.encode(prev)
+        return self.decode_train(encoded, next_len)
 
     def loss(self, prediction, label):
         """
@@ -63,6 +83,26 @@ class ConvSeq2Seq(nn.Module):
         :return:
         """
         return F.mse_loss(prediction, label)
+
+    def decode_train(self, hidden, n):
+        predictions = []
+
+        next_input = torch.zeros(n.shape[0], 1, 1, device=self.device)
+        for t in range(n.shape[1]):
+            output, hidden = self.decoder(next_input, hidden)
+
+            pred = self.fc(output.view(n.shape[0], self.hidden_size))
+
+            predictions.append(pred.view(n.shape[0], 1))
+
+            if random.random() < self.teacher_forcing_ratio:
+                next_input = n[:, t].reshape(n.shape[0], 1, 1)
+            else:
+                next_input = predictions[-1].view(n.shape[0], 1, 1)
+
+        predictions = torch.stack(predictions).permute(1, 0, 2).view(n.shape)
+
+        return predictions
 
 def train(data):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
