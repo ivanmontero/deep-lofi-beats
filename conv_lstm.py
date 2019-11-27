@@ -33,17 +33,14 @@ class ConvSeq2Seq(nn.Module):
         #TODO: can we get away with not moving any of this stuff to the GPU? @Cameron
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
-        # TODO: best kind of out channels?
         self.conv1 = nn.Conv1d(1, 20, kernel_size=21, stride=21).to(device)
         self.conv2 = nn.Conv1d(20, 64, kernel_size=21, stride=21).to(device)
-        # self.bnorm1 = nn.BatchNorm1d(64).to(device)
-        # TODO: How to think about input_size relative to the number of output channels from the conv layers
         self.rnn_encoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
-        self.rnn_decoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
+        # self.bnorm1 = nn.BatchNorm1d(64).to(device)
 
         self.deconv1 = nn.ConvTranspose1d(64, 20, kernel_size=21, stride=21).to(device)
         self.deconv2 = nn.ConvTranspose1d(20, 1, kernel_size=21, stride=21).to(device)
-
+        self.rnn_decoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
         self.fc1 = nn.Linear(self.hidden_size, 1).to(device)
 
         self.device = device
@@ -83,6 +80,7 @@ class ConvSeq2Seq(nn.Module):
         # return self.decode_train(encoded, next)
         encoded = self.encoder(prev_tensor)
         decoded = self.decoder_train(encoded, next_tensor)
+        return decoded
 
     def encoder(self, prev):
         """
@@ -96,6 +94,9 @@ class ConvSeq2Seq(nn.Module):
             x = self.conv2(prev)
             _, hidden = self.rnn_encoder(prev[:, step].view(prev.shape[0], 1, 1), hidden)
         return hidden
+
+    def decoder_train(self, hidden, next_tensor):
+        pass
 
     def encode(self, prev):
         # TODO: delete once encoder method starts to work
@@ -137,8 +138,10 @@ class ConvSeq2Seq(nn.Module):
                 next_input = predictions[-1].view(n.shape[0], 1, 1)
 
         predictions = torch.stack(predictions).permute(1, 0, 2).view(n.shape)
-
         return predictions
+
+    def decode(self, hidden, length):
+        pass
 
 def train(data):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
