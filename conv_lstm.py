@@ -90,7 +90,7 @@ class ConvSeq2Seq(nn.Module):
         return x
     
     # in: (batch_size, 1, seq_len // (21*21))
-    # out: (batch_size, 1, seq_len)
+    # out: (batch_size, self.c_sum, seq_len)
     def desummarize(x):
         x = self.deconv1(x)
         x = self.deconv2(x)
@@ -115,10 +115,15 @@ class ConvSeq2Seq(nn.Module):
         # for t in tqdm.tqdm(range(prev.shape[1])):
         #     _, hidden = self.rnn_encoder(prev[:, t].view(prev.shape[0], 1, 1), hidden)
 
-        x = self.summarize(x)
-        # x of shape (batch_size, )
+        x = self.summarize(prev.view(prev.shape[0], 1, -1))
+        # x: (batch_size, self.c_sum, seq_len // (21*21))
 
-        # This hopefully wont hit a cuda error
+        
+        # lstm expects: (batch_size, seq, feature)
+        x = x.permute(0, 2, 1)
+
+        # This hopefully wont hit a cuda error now
+        _, hidden = self.rnn_encoder(x)
 
         return hidden
 
