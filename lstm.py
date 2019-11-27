@@ -23,7 +23,6 @@ HIDDEN_SIZE = 128
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
 
-
 class Seq2Seq(nn.Module):
     def __init__(self, hidden_size, device):
         super(Seq2Seq, self).__init__()
