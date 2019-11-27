@@ -19,6 +19,7 @@ HIDDEN_SIZE = 512
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
 
+
 class ConvSeq2Seq(nn.Module):
     """
     :class ConvSeq2Seq is a variant of the standard sequence to sequence model, which uses
@@ -29,6 +30,7 @@ class ConvSeq2Seq(nn.Module):
         :param hidden_size:
         :param device:
         """
+        #TODO: can we get away with not moving any of this stuff to the GPU? @Cameron
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
         # TODO: best kind of out channels?
@@ -47,23 +49,56 @@ class ConvSeq2Seq(nn.Module):
         self.device = device
         self.teacher_forcing_ratio = 0.5
 
-    def forward(self, prev, next):
+    def forward(self, prev_tensor, next_tensor):
         """
+        Architecture:
+        [encoder]
+        input ->
+        conv1 ->
+        conv2 ->
+        rnn ->
+        (encoded)
 
-        Run conv layers, then process prev into encode? or are we looping inside encode over
-        conv layer
+
+        [decoder]
+        (encoded) ->
+        {begin timestep} lstm ->
+        (output of size hidden_size) ->
+        linear layer ->
+        deconv1 ->
+        deconv2 ->
+        (actual song segment, as prediction) ->
+        conv1 ->
+        conv2 ->
+        (input to next timestep)
         """
-        print(prev.shape)
-        shrunk_prev = self.conv1(prev)
-        shrunk_prev = self.conv2(prev)
-        encoded = self.encode(shrunk_prev)
-        encoded = self.deconv1(encoded)
-        encoded = self.deconv2(encoded)
-        print(encoded.shape)
-        print(prev.shape == encoded.shape)
-        return self.decode_train(encoded, next)
+        # print(prev.shape)
+        # shrunk_prev = self.conv1(prev)
+        # shrunk_prev = self.conv2(prev)
+        # encoded = self.encode(shrunk_prev)
+        # encoded = self.deconv1(encoded)
+        # encoded = self.deconv2(encoded)
+        # print(encoded.shape)
+        # print(prev.shape == encoded.shape)
+        # return self.decode_train(encoded, next)
+        encoded = self.encoder(prev_tensor)
+        decoded = self.decoder_train(encoded, next_tensor)
+
+    def encoder(self, prev):
+        """
+        Same idea as encode except conforms to architecture we discussed
+        :return: hidden state
+        """
+        hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
+                  torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
+        for step in tqdm.tqdm(range(prev.shape[1]):
+            x = self.conv1(prev)
+            x = self.conv2(prev)
+            _, hidden = self.rnn_encoder(prev[:, step].view(prev.shape[0], 1, 1), hidden)
+        return hidden
 
     def encode(self, prev):
+        # TODO: delete once encoder method starts to work
         hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
                   torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
 
