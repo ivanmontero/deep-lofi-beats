@@ -69,15 +69,6 @@ class ConvSeq2Seq(nn.Module):
         conv2 ->
         (input to next timestep)
         """
-        # print(prev.shape)
-        # shrunk_prev = self.conv1(prev)
-        # shrunk_prev = self.conv2(prev)
-        # encoded = self.encode(shrunk_prev)
-        # encoded = self.deconv1(encoded)
-        # encoded = self.deconv2(encoded)
-        # print(encoded.shape)
-        # print(prev.shape == encoded.shape)
-        # return self.decode_train(encoded, next)
         encoded = self.encoder(prev_tensor)
         decoded = self.decoder_train(encoded, next_tensor)
         return decoded
@@ -96,7 +87,24 @@ class ConvSeq2Seq(nn.Module):
         return hidden
 
     def decoder_train(self, hidden, next_tensor):
-        pass
+        """
+        """
+        predictions = []
+        next_input = torch.zeros(next_tensor.shape[0], 1, 1, device=self.device)
+        for t in range(next_tensor.shape[1]):
+            output, hidden = self.rnn_decoder(next_input, hidden)
+
+            pred = self.fc(output.view(next_tensor.shape[0], self.hidden_size))
+
+            predictions.append(pred.view(next_tensor.shape[0], 1))
+
+            if random.random() < self.teacher_forcing_ratio:
+                next_input = next_tensor[:, t].reshape(next_tensor.shape[0], 1, 1)
+            else:
+                next_input = predictions[-1].view(next_tensor.shape[0], 1, 1)
+
+        predictions = torch.stack(predictions).permute(1, 0, 2).view(next_tensor.shape)
+        return predictions
 
     def encode(self, prev):
         # TODO: delete once encoder method starts to work
