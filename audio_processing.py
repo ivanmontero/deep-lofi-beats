@@ -7,11 +7,15 @@ import numpy as np
 
 
 # Assumes data is n x seq, where n is the amount of audio files and seq varies
-def get_batch(data, max_len, batch_size, device):
+# max_len is in terms of segment size
+def get_batch(data, max_len, batch_size, device, segment_size=1):
     batch = data[np.random.choice(data.shape[0], batch_size, replace=True)]
 
     len1 = random.randint(1, max_len - 1)
     len2 = random.randint(1, max_len - len1)
+
+    len1 *= segment_size
+    len2 *= segment_size
 
     p, n = np.zeros((batch_size, len1)), np.zeros((batch_size, len2))
 

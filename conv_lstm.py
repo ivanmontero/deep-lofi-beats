@@ -11,7 +11,7 @@ import random
 SAMPLE_RATE = 44100  # Samples per second. Must match data
 assert SAMPLE_RATE % 44100 == 0
 # TODO if you change sample rate change the kernel size
-MAX_LEN = int(SAMPLE_RATE * 2)  # 2 seconds max length for sequence
+MAX_LEN = 10 # seconds
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
 BATCH_SIZE = 8 # change to 4-5 for inference, use
@@ -78,16 +78,14 @@ class ConvSeq2Seq(nn.Module):
         conv2 ->
         (input to next timestep)
         """
-        encoded = self.encoder(prev_tensor)
-        decoded = self.decoder_train(encoded, next_tensor)
+        encoded = self.encode(prev_tensor)
+        decoded = self.decode_train(encoded, next_tensor)
         return decoded
     
     # Summarizes raw audio
-    
-        # x = x.view(x.shape[0], 1, -1)
     # in: (batch_size, 1, seq_len)
     # out: (batch_size, self.c_sum, seq_len // (21*21))
-    def summarize(x):
+    def summarize(self, x):
         # Resize to fit into conv layer
         x = self.conv1(x)
         x = self.conv2(x)
@@ -95,25 +93,13 @@ class ConvSeq2Seq(nn.Module):
     
     # in: (batch_size, self.c_sum, seq_len // (21*21))
     # out: (batch_size, 1, seq_len)
-    def desummarize(x):
+    def desummarize(self, x):
         x = self.deconv1(x)
         x = self.deconv2(x)
         return x
 
 
     def encode(self, prev):
-        """
-        print(prev.shape)
-        shrunk_prev = self.conv1(prev)
-        shrunk_prev = self.conv2(prev)
-        encoded = self.encode(shrunk_prev)
-        encoded = self.deconv1(encoded)
-        encoded = self.deconv2(encoded)
-        print(encoded.shape)
-        print(prev.shape == encoded.shape)
-        return self.decode_train(encoded, next)
-        """
-
         x = self.summarize(prev.view(prev.shape[0], 1, -1))
         # x: (batch_size, self.c_sum, seq_len // (21*21))
 
@@ -161,7 +147,7 @@ class ConvSeq2Seq(nn.Module):
                 next_input = hidden_to_deconv.detach()
             next_input = next_input.permute(0, 2, 1)
 
-        predictions = torch.stack(predictions).permute(1, 0, 2).view(n.shape)
+        predictions = torch.stack(predictions).permute(1, 0, 2).reshape(n.shape)
         return predictions
 
     def decode(self, hidden, length):
@@ -184,7 +170,7 @@ def train(data):
     for epoch in range(EPOCHS):
         batch_losses = []
         for _ in tqdm.tqdm(range(SEQ_IN_EPOCH)):
-            p, n = get_batch(data, MAX_LEN, BATCH_SIZE, device)
+            p, n = get_batch(data, MAX_LEN, BATCH_SIZE, device, segment_size=44100)
 
             optimizer.zero_grad()
             pred_n = model(p, n)
