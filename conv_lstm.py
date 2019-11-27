@@ -31,15 +31,15 @@ class ConvSeq2Seq(nn.Module):
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
         # TODO: best kind of out channels?
-        self.conv1 = nn.Conv1d(1, 20, kernel_size=21).to(device)
-        self.conv2 = nn.Conv1d(20, 64, kernel_size=21).to(device)
+        self.conv1 = nn.Conv1d(1, 20, kernel_size=21, stride=21).to(device)
+        self.conv2 = nn.Conv1d(20, 64, kernel_size=21, stride=21).to(device)
         # self.bnorm1 = nn.BatchNorm1d(64).to(device)
         # TODO: How to think about input_size relative to the number of output channels from the conv layers
         self.rnn_encoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
         self.rnn_decoder = nn.LSTM(1, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
 
-        self.deconv1 = nn.ConvTranspose1d(64, 20, kernel_size=21).to(device)
-        self.deconv2 = nn.ConvTranspose1d(20, 1, kernel_size=21).to(device)
+        self.deconv1 = nn.ConvTranspose1d(64, 20, kernel_size=21, stride=21).to(device)
+        self.deconv2 = nn.ConvTranspose1d(20, 1, kernel_size=21, stride=21).to(device)
 
         self.fc1 = nn.Linear(self.hidden_size, 1).to(device)
 
