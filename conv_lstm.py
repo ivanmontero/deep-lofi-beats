@@ -19,7 +19,7 @@ HIDDEN_SIZE = 512
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
 
-
+# INPUT SIZE IS 44100
 class ConvSeq2Seq(nn.Module):
     """
     :class ConvSeq2Seq is a variant of the standard sequence to sequence model, which uses
@@ -36,6 +36,10 @@ class ConvSeq2Seq(nn.Module):
         self.c_int_sum= 16  # channels intermediate summary
         self.c_sum = 64     # channels summarized
 
+        self.input_sample_rate = 44100
+        self.sum_sample_rate = 100
+        self.sum_seg_size = self.input_sample_rate // self.sum_sample_rate
+
         self.conv1 = nn.Conv1d(1, self.c_int_sum, kernel_size=21, stride=21).to(device)
         self.conv2 = nn.Conv1d(self.c_int_sum, self.c_sum, kernel_size=21, stride=21).to(device)
         # self.bnorm1 = nn.BatchNorm1d(64).to(device)
@@ -46,7 +50,7 @@ class ConvSeq2Seq(nn.Module):
         self.deconv1 = nn.ConvTranspose1d(self.c_sum, self.c_int_sum, kernel_size=21, stride=21).to(device)
         self.deconv2 = nn.ConvTranspose1d(self.c_int_sum, 1, kernel_size=21, stride=21).to(device)
 
-        self.fc1 = nn.Linear(self.hidden_size, 1).to(device)
+        self.fc = nn.Linear(self.hidden_size, self.c_sum*1).to(device)
 
         self.device = device
         self.teacher_forcing_ratio = 0.5
@@ -82,15 +86,15 @@ class ConvSeq2Seq(nn.Module):
     
         # x = x.view(x.shape[0], 1, -1)
     # in: (batch_size, 1, seq_len)
-    # out: (batch_size, 1, seq_len // (21*21))
+    # out: (batch_size, self.c_sum, seq_len // (21*21))
     def summarize(x):
         # Resize to fit into conv layer
         x = self.conv1(x)
         x = self.conv2(x)
         return x
     
-    # in: (batch_size, 1, seq_len // (21*21))
-    # out: (batch_size, self.c_sum, seq_len)
+    # in: (batch_size, self.c_sum, seq_len // (21*21))
+    # out: (batch_size, 1, seq_len)
     def desummarize(x):
         x = self.deconv1(x)
         x = self.deconv2(x)
@@ -109,17 +113,11 @@ class ConvSeq2Seq(nn.Module):
         print(prev.shape == encoded.shape)
         return self.decode_train(encoded, next)
         """
-        # hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
-        #           torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
-
-        # for t in tqdm.tqdm(range(prev.shape[1])):
-        #     _, hidden = self.rnn_encoder(prev[:, t].view(prev.shape[0], 1, 1), hidden)
 
         x = self.summarize(prev.view(prev.shape[0], 1, -1))
         # x: (batch_size, self.c_sum, seq_len // (21*21))
 
-        
-        # lstm expects: (batch_size, seq, feature)
+        # lstm expects: (batch_size, seq, self.c_sum)
         x = x.permute(0, 2, 1)
 
         # This hopefully wont hit a cuda error now
@@ -142,19 +140,26 @@ class ConvSeq2Seq(nn.Module):
 
     def decode_train(self, hidden, n):
         predictions = []
+        # each prediction takes shape, from loop: (n.shape[1] // self.sum_seg_size, batch_size, self.sum_seg_size)
+        # permute s. t. (batch_size, n.shape[1] // self.sum_seg_size, self.sum_seg_size)
 
-        next_input = torch.zeros(n.shape[0], 1, 1, device=self.device)
-        for t in range(n.shape[1]):
+        next_input = torch.zeros(n.shape[0], 1, self.c_sum, device=self.device)
+        for t in range(n.shape[1] // self.sum_seg_size):
+            # lstm expects: (batch_size, 1, self.c_sum)
             output, hidden = self.rnn_decoder(next_input, hidden)
 
-            pred = self.fc(output.view(n.shape[0], self.hidden_size))
+            # deconv expects: (batch_size, self.c_sum, 1)
+            hidden_to_deconv = self.fc(output.view(n.shape[0], self.hidden_size)).view(n.shape[0], self.c_sum, 1)
 
-            predictions.append(pred.view(n.shape[0], 1))
+            pred = self.desummarize(hidden_to_deconv)
+
+            predictions.append(pred.view(n.shape[0], -1))
 
             if random.random() < self.teacher_forcing_ratio:
-                next_input = n[:, t].reshape(n.shape[0], 1, 1)
+                next_input = self.summarize(n[:,t*self.sum_seg_size:(t+1)*self.sum_seg_size].view(n.shape[0], 1, self.sum_seg_size))
             else:
-                next_input = predictions[-1].view(n.shape[0], 1, 1)
+                next_input = hidden_to_deconv.detach()
+            next_input = next_input.permute(0, 2, 1)
 
         predictions = torch.stack(predictions).permute(1, 0, 2).view(n.shape)
         return predictions
