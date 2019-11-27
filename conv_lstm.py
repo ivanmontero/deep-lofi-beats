@@ -9,6 +9,7 @@ from audio_processing import get_batch
 import random
 
 SAMPLE_RATE = 44100  # Samples per second. Must match data
+assert SAMPLE_RATE % 44100 == 0
 # TODO if you change sample rate change the kernel size
 MAX_LEN = int(SAMPLE_RATE * 2)  # 2 seconds max length for sequence
 LEARNING_RATE = 0.001
