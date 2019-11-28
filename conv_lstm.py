@@ -8,13 +8,10 @@ from loader import load
 from audio_processing import get_batch
 import random
 
-SAMPLE_RATE = 44100  # Samples per second. Must match data
-assert SAMPLE_RATE % 44100 == 0
-# TODO if you change sample rate change the kernel size
 MAX_LEN = 10 # seconds
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
-BATCH_SIZE = 8 # change to 4-5 for inference, use
+BATCH_SIZE = 64 # change to 4-5 for inference, use
 HIDDEN_SIZE = 512
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
@@ -197,6 +194,6 @@ def train(data):
 
 
 if __name__ == '__main__':
-    audio_data = load()
+    audio_data = load(enforce_samplerate=44100)
     model = train(audio_data)
     torch.save(model.state_dict(), "checkpoints/conv_lstm_final.pt")

@@ -26,7 +26,7 @@ def load_multisampled():
     return np.array(data)
 
 
-def load():
+def load(enforce_samplerate=None):
     # We have npys we can read from, so lets do that
     print('Reading data from npy files...')
 
@@ -34,6 +34,8 @@ def load():
     sample_rates = []
     for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
         loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)
+        if enforce_samplerate != None and loaded[1] != enforce_samplerate:
+            continue
         data.append(loaded[0][0])
         sample_rates.append(loaded[1])
 
