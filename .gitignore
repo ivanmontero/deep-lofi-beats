@@ -1,5 +1,2 @@
 *.pyc
-*.npy
 .DS_Store
-*.pt
-*.mp3
