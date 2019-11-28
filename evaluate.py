@@ -1,17 +1,18 @@
 import torch
 import numpy as np
 from lstm import Seq2Seq, HIDDEN_SIZE
+from conv_lstm import ConvSeq2Seq
 from loader import SONG_NPY_DIR, OUTPUT_DIR
 import os
 from loader import load
 from audio_processing import get_batch
 import matplotlib.pyplot as plt
 
-TRAINED_STATE = 'checkpoints/lstm_final.pt'
+TRAINED_STATE = 'checkpoints/conv_lstm7.pt'
 IS_WINDOWS = True
 
 def load_model_from_checkpoint(checkpoint, device):
-    model = Seq2Seq(HIDDEN_SIZE, device)
+    model = ConvSeq2Seq(256, device)
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     return model
 
@@ -20,29 +21,30 @@ def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print('Using device: {}'.format(device))
 
-    data, sample_rates = load()
+    data, sample_rates = load(enforce_samplerate=44100)
+    print(data)
     # 10 seconds of audio
-    seq_len = 10 * sample_rates[0]
+    seq_len = 30
 
     print('Loading trained model...')
     model = load_model_from_checkpoint(TRAINED_STATE, device)
     print('Performing inference...')
 
-    prev, _ = get_batch(data, 10*sample_rates[0], 1, device)
+    prev, _ = get_batch(data, 10, 1, device, segment_size=44100)
 
     print('Encoding seed sequence')
     hidden = model.encode(prev)
 
     print('Producing sequence')
-    audio = model.decode(hidden, seq_len)
+    audio = torch.clamp(model.decode(hidden, seq_len), -1, 1)
 
     print('Saving result')
-    np.save(os.path.join(OUTPUT_DIR, 'prediction.npy'), audio[0].detach().numpy())
+    np.save(os.path.join(OUTPUT_DIR, 'prediction.npy'), audio[0].detach().cpu().numpy())
     if not IS_WINDOWS:
         import torchaudio
         torchaudio.save("prediction.mp3", torch.stack((audio[0], audio[0])), sample_rates[0])
 
-    plt.plot(audio[0].detach().numpy())
+    plt.plot(audio[0].detach().cpu().numpy())
     plt.show()
 
     return audio

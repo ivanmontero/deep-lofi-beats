@@ -11,8 +11,8 @@ import random
 MAX_LEN = 10 # seconds
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
-BATCH_SIZE = 64 # change to 4-5 for inference, use
-HIDDEN_SIZE = 512
+BATCH_SIZE = 1 # change to 4-5 for inference, use
+HIDDEN_SIZE = 2048
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
 
@@ -30,8 +30,8 @@ class ConvSeq2Seq(nn.Module):
         #TODO: can we get away with not moving any of this stuff to the GPU? @Cameron
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
-        self.c_int_sum= 16  # channels intermediate summary
-        self.c_sum = 64     # channels summarized
+        self.c_int_sum= 64  # channels intermediate summary
+        self.c_sum = 128     # channels summarized
 
         self.input_sample_rate = 44100
         self.sum_sample_rate = 100
@@ -63,6 +63,7 @@ class ConvSeq2Seq(nn.Module):
     def summarize(self, x):
         # Resize to fit into conv layer
         x = self.conv1(x)
+        x = torch.tanh(x)
         x = self.conv2(x)
         return x
     
@@ -70,19 +71,24 @@ class ConvSeq2Seq(nn.Module):
     # out: (batch_size, 1, seq_len)
     def desummarize(self, x):
         x = self.deconv1(x)
+        x = torch.tanh(x)
         x = self.deconv2(x)
         return x
 
 
     def encode(self, prev):
+        hidden = (torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device),
+                  torch.zeros(2, prev.shape[0], self.hidden_size, device=self.device))
+
         x = self.summarize(prev.view(prev.shape[0], 1, -1))
         # x: (batch_size, self.c_sum, seq_len // (21*21))
 
         # lstm expects: (batch_size, seq, self.c_sum)
         x = x.permute(0, 2, 1)
 
-        # This hopefully wont hit a cuda error now
-        _, hidden = self.rnn_encoder(x)
+        # Loop to prevent cuda error
+        for t in range(x.shape[1]):
+            _, hidden = self.rnn_encoder(x[:, t].view(x.shape[0], 1, x.shape[2]), hidden)
 
         return hidden
 
@@ -110,7 +116,7 @@ class ConvSeq2Seq(nn.Module):
             output, hidden = self.rnn_decoder(next_input, hidden)
 
             # deconv expects: (batch_size, self.c_sum, 1)
-            hidden_to_deconv = self.fc(output.view(n.shape[0], self.hidden_size)).view(n.shape[0], self.c_sum, 1)
+            hidden_to_deconv = self.fc(torch.tanh(output.view(n.shape[0], self.hidden_size))).view(n.shape[0], self.c_sum, 1)
 
             pred = self.desummarize(hidden_to_deconv)
 
@@ -119,7 +125,7 @@ class ConvSeq2Seq(nn.Module):
             if random.random() < self.teacher_forcing_ratio:
                 next_input = self.summarize(n[:,t*self.sum_seg_size:(t+1)*self.sum_seg_size].view(n.shape[0], 1, self.sum_seg_size))
             else:
-                next_input = self.summarize(pred.detach())
+                next_input = self.summarize(pred)
             next_input = next_input.permute(0, 2, 1)
 
         predictions = torch.stack(predictions).permute(1, 0, 2).reshape(n.shape)
@@ -132,19 +138,19 @@ class ConvSeq2Seq(nn.Module):
         # each prediction takes shape, from loop: (n.shape[1] // self.sum_seg_size, batch_size, self.sum_seg_size)
         # permute s. t. (batch_size, n.shape[1] // self.sum_seg_size, self.sum_seg_size)
 
-        next_input = torch.zeros(n.shape[0], 1, self.c_sum, device=self.device)
+        next_input = torch.zeros(batch_size, 1, self.c_sum, device=self.device)
         for t in range(length*self.sum_sample_rate):
             # lstm expects: (batch_size, 1, self.c_sum)
             output, hidden = self.rnn_decoder(next_input, hidden)
 
             # deconv expects: (batch_size, self.c_sum, 1)
-            hidden_to_deconv = self.fc(output.view(batch_size, self.hidden_size)).view(batch_size, self.c_sum, 1)
+            hidden_to_deconv = self.fc(torch.tanh(output.view(batch_size, self.hidden_size))).view(batch_size, self.c_sum, 1)
 
             pred = self.desummarize(hidden_to_deconv)
 
             predictions.append(pred.view(batch_size, -1))
 
-            next_input = self.summarize(pred.detach()).permute(0, 2, 1)
+            next_input = self.summarize(pred).permute(0, 2, 1)
 
         predictions = torch.stack(predictions).permute(1, 0, 2).reshape((batch_size, -1))
         return predictions

@@ -33,9 +33,10 @@ def load(enforce_samplerate=None):
     data = []
     sample_rates = []
     for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
-        loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)
-        if enforce_samplerate != None and loaded[1] != enforce_samplerate:
+        loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)[()]
+        if enforce_samplerate is None and str(enforce_samplerate) not in loaded:
             continue
+        loaded = loaded[str(enforce_samplerate)]
         data.append(loaded[0][0])
         sample_rates.append(loaded[1])
 
