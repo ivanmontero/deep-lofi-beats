@@ -53,28 +53,6 @@ class ConvSeq2Seq(nn.Module):
         self.teacher_forcing_ratio = 0.5
 
     def forward(self, prev_tensor, next_tensor):
-        """
-        Architecture:
-        [encoder]
-        input ->
-        conv1 ->
-        conv2 ->
-        rnn ->
-        (encoded)
-
-
-        [decoder]
-        (encoded) ->
-        {begin timestep} lstm ->
-        (output of size hidden_size) ->
-        linear layer ->
-        deconv1 ->
-        deconv2 ->
-        (actual song segment, as prediction) ->
-        conv1 ->
-        conv2 ->
-        (input to next timestep)
-        """
         encoded = self.encode(prev_tensor)
         decoded = self.decode_train(encoded, next_tensor)
         return decoded
@@ -147,8 +125,29 @@ class ConvSeq2Seq(nn.Module):
         predictions = torch.stack(predictions).permute(1, 0, 2).reshape(n.shape)
         return predictions
 
+    # Length on the scale of seconds.
     def decode(self, hidden, length):
-        pass
+        batch_size = hidden[0].shape[1]
+        predictions = []
+        # each prediction takes shape, from loop: (n.shape[1] // self.sum_seg_size, batch_size, self.sum_seg_size)
+        # permute s. t. (batch_size, n.shape[1] // self.sum_seg_size, self.sum_seg_size)
+
+        next_input = torch.zeros(n.shape[0], 1, self.c_sum, device=self.device)
+        for t in range(length*self.sum_sample_rate):
+            # lstm expects: (batch_size, 1, self.c_sum)
+            output, hidden = self.rnn_decoder(next_input, hidden)
+
+            # deconv expects: (batch_size, self.c_sum, 1)
+            hidden_to_deconv = self.fc(output.view(batch_size, self.hidden_size)).view(batch_size, self.c_sum, 1)
+
+            pred = self.desummarize(hidden_to_deconv)
+
+            predictions.append(pred.view(batch_size, -1))
+
+            next_input = hidden_to_deconv.detach().permute(0, 2, 1)
+
+        predictions = torch.stack(predictions).permute(1, 0, 2).reshape((batch_size, -1))
+        return predictions
 
 def train(data):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
