@@ -12,12 +12,12 @@ MAX_LEN = 10 # seconds
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
 BATCH_SIZE = 1 # change to 4-5 for inference, use
-HIDDEN_SIZE = 2048
+HIDDEN_SIZE = 256
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
 
 # INPUT SIZE IS 44100
-class ConvSeq2Seq(nn.Module):
+class ConvSeq2SeqPrevFeed(nn.Module):
     """
     :class ConvSeq2Seq is a variant of the standard sequence to sequence model, which uses
            convolutional layers in the encoder and deconvolutional layers in the decoder
@@ -30,8 +30,8 @@ class ConvSeq2Seq(nn.Module):
         #TODO: can we get away with not moving any of this stuff to the GPU? @Cameron
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
-        self.c_int_sum= 64  # channels intermediate summary
-        self.c_sum = 128     # channels summarized
+        self.c_int_sum= 16  # channels intermediate summary
+        self.c_sum = 64     # channels summarized
 
         self.input_sample_rate = 44100
         self.sum_sample_rate = 100
@@ -53,8 +53,8 @@ class ConvSeq2Seq(nn.Module):
         self.teacher_forcing_ratio = 0.5
 
     def forward(self, prev_tensor, next_tensor):
-        encoded = self.encode(prev_tensor)
-        decoded = self.decode_train(encoded, next_tensor)
+        encoded, last_seg = self.encode(prev_tensor)
+        decoded = self.decode_train(encoded, last_seg, next_tensor)
         return decoded
     
     # Summarizes raw audio
@@ -63,7 +63,6 @@ class ConvSeq2Seq(nn.Module):
     def summarize(self, x):
         # Resize to fit into conv layer
         x = self.conv1(x)
-        x = torch.tanh(x)
         x = self.conv2(x)
         return x
     
@@ -71,7 +70,6 @@ class ConvSeq2Seq(nn.Module):
     # out: (batch_size, 1, seq_len)
     def desummarize(self, x):
         x = self.deconv1(x)
-        x = torch.tanh(x)
         x = self.deconv2(x)
         return x
 
@@ -90,11 +88,11 @@ class ConvSeq2Seq(nn.Module):
         for t in range(x.shape[1]):
             _, hidden = self.rnn_encoder(x[:, t].view(x.shape[0], 1, x.shape[2]), hidden)
 
-        return hidden
+        return hidden, x[:, x.shape[1]-1].view(x.shape[0], 1, x.shape[2])
 
     def inference(self, prev, next_len):
-        encoded = self.encode(prev)
-        return self.decode_train(encoded, next_len)
+        encoded, last_seg = self.encode(prev)
+        return self.decode_train(encoded, last_seg, next_len)
 
     def loss(self, prediction, label):
         """
@@ -105,18 +103,19 @@ class ConvSeq2Seq(nn.Module):
         """
         return F.mse_loss(prediction, label)
 
-    def decode_train(self, hidden, n):
+    def decode_train(self, hidden, last_seg, n):
         predictions = []
         # each prediction takes shape, from loop: (n.shape[1] // self.sum_seg_size, batch_size, self.sum_seg_size)
         # permute s. t. (batch_size, n.shape[1] // self.sum_seg_size, self.sum_seg_size)
 
-        next_input = torch.zeros(n.shape[0], 1, self.c_sum, device=self.device)
+        # next_input = torch.zeros(n.shape[0], 1, self.c_sum, device=self.device)
+        next_input = last_seg
         for t in range(n.shape[1] // self.sum_seg_size):
             # lstm expects: (batch_size, 1, self.c_sum)
             output, hidden = self.rnn_decoder(next_input, hidden)
 
             # deconv expects: (batch_size, self.c_sum, 1)
-            hidden_to_deconv = self.fc(torch.tanh(output.view(n.shape[0], self.hidden_size))).view(n.shape[0], self.c_sum, 1)
+            hidden_to_deconv = self.fc(output.view(n.shape[0], self.hidden_size)).view(n.shape[0], self.c_sum, 1)
 
             pred = self.desummarize(hidden_to_deconv)
 
@@ -132,19 +131,20 @@ class ConvSeq2Seq(nn.Module):
         return predictions
 
     # Length on the scale of seconds.
-    def decode(self, hidden, length):
+    def decode(self, hidden, last_seg, length):
         batch_size = hidden[0].shape[1]
         predictions = []
         # each prediction takes shape, from loop: (n.shape[1] // self.sum_seg_size, batch_size, self.sum_seg_size)
         # permute s. t. (batch_size, n.shape[1] // self.sum_seg_size, self.sum_seg_size)
 
-        next_input = torch.zeros(batch_size, 1, self.c_sum, device=self.device)
+        # next_input = torch.zeros(n.shape[0], 1, self.c_sum, device=self.device)
+        next_input = last_seg
         for t in range(length*self.sum_sample_rate):
             # lstm expects: (batch_size, 1, self.c_sum)
             output, hidden = self.rnn_decoder(next_input, hidden)
 
             # deconv expects: (batch_size, self.c_sum, 1)
-            hidden_to_deconv = self.fc(torch.tanh(output.view(batch_size, self.hidden_size))).view(batch_size, self.c_sum, 1)
+            hidden_to_deconv = self.fc(output.view(batch_size, self.hidden_size)).view(batch_size, self.c_sum, 1)
 
             pred = self.desummarize(hidden_to_deconv)
 
@@ -164,7 +164,7 @@ def train(data):
 
     # print(data.shape)
 
-    model = ConvSeq2Seq(HIDDEN_SIZE, device)
+    model = ConvSeq2SeqPrevFeed(HIDDEN_SIZE, device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     losses = []
     all_losses = []
@@ -186,7 +186,7 @@ def train(data):
         avg_batch_loss = np.mean(batch_losses)
         losses.append(np.mean(batch_losses))
         print(f"[Epoch: {epoch+1}] [Loss: {avg_batch_loss}]")
-        torch.save(model.state_dict(), "checkpoints/conv_lstm{}.pt".format(epoch+1))
+        torch.save(model.state_dict(), "checkpoints/conv_lstms{}.pt".format(epoch+1))
 
     plt.plot(np.arange(len(losses)), losses)
     plt.title('Train Loss vs. Epochs')
@@ -201,4 +201,4 @@ def train(data):
 if __name__ == '__main__':
     audio_data = load(enforce_samplerate=44100)
     model = train(audio_data)
-    torch.save(model.state_dict(), "checkpoints/conv_lstm_final.pt")
+    torch.save(model.state_dict(), "checkpoints/conv_lstms_final.pt")
