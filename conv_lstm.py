@@ -12,7 +12,7 @@ MAX_LEN = 10 # seconds
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.0005
 BATCH_SIZE = 1 # change to 4-5 for inference, use
-HIDDEN_SIZE = 2048
+HIDDEN_SIZE = 512
 EPOCHS = 10
 SEQ_IN_EPOCH = 25
 
@@ -30,27 +30,33 @@ class ConvSeq2Seq(nn.Module):
         #TODO: can we get away with not moving any of this stuff to the GPU? @Cameron
         super(ConvSeq2Seq, self).__init__()
         self.hidden_size = hidden_size
-        self.c_int_sum= 64  # channels intermediate summary
-        self.c_sum = 128     # channels summarized
+        self.c_int_sums = [2, 8, 32]  # channels intermediate summary
+        self.c_sum = 64     # channels summarized (channels in summarized)
 
         self.input_sample_rate = 44100
-        self.sum_sample_rate = 100
+        self.sum_sample_rate = 42
         self.sum_seg_size = self.input_sample_rate // self.sum_sample_rate
 
-        self.conv1 = nn.Conv1d(1, self.c_int_sum, kernel_size=21, stride=21).to(device)
-        self.conv2 = nn.Conv1d(self.c_int_sum, self.c_sum, kernel_size=21, stride=21).to(device)
+        # 3 -> 5 -> 7 -> 10
+
+        self.conv1 = nn.Conv1d(1, self.c_int_sums[0], kernel_size=3, stride=3).to(device)
+        self.conv2 = nn.Conv1d(self.c_int_sums[0], self.c_int_sums[1], kernel_size=5, stride=5).to(device)
+        self.conv3 = nn.Conv1d(self.c_int_sums[1], self.c_int_sums[2], kernel_size=7, stride=7).to(device)
+        self.conv4 = nn.Conv1d(self.c_int_sums[2], self.c_sum, kernel_size=10, stride=10).to(device)
         # self.bnorm1 = nn.BatchNorm1d(64).to(device)
         # TODO: How to think about input_size relative to the number of output channels from the conv layers
-        self.rnn_encoder = nn.LSTM(self.c_sum, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
-        self.rnn_decoder = nn.LSTM(self.c_sum, self.hidden_size, num_layers=2, batch_first=True, dropout=0.1).to(device)
+        self.rnn_encoder = nn.LSTM(self.c_sum, self.hidden_size, num_layers=2, batch_first=True).to(device)
+        self.rnn_decoder = nn.LSTM(self.c_sum, self.hidden_size, num_layers=2, batch_first=True).to(device)
 
-        self.deconv1 = nn.ConvTranspose1d(self.c_sum, self.c_int_sum, kernel_size=21, stride=21).to(device)
-        self.deconv2 = nn.ConvTranspose1d(self.c_int_sum, 1, kernel_size=21, stride=21).to(device)
+        self.deconv1 = nn.ConvTranspose1d(self.c_sum, self.c_int_sums[2], kernel_size=10, stride=10).to(device)
+        self.deconv2 = nn.ConvTranspose1d(self.c_int_sums[2], self.c_int_sums[1], kernel_size=7, stride=7).to(device)
+        self.deconv3 = nn.ConvTranspose1d(self.c_int_sums[1], self.c_int_sums[0], kernel_size=5, stride=5).to(device)
+        self.deconv4 = nn.ConvTranspose1d(self.c_int_sums[0], 1, kernel_size=3, stride=3).to(device)
 
         self.fc = nn.Linear(self.hidden_size, self.c_sum*1).to(device)
 
         self.device = device
-        self.teacher_forcing_ratio = 0.5
+        self.teacher_forcing_ratio = 0.0
 
     def forward(self, prev_tensor, next_tensor):
         encoded = self.encode(prev_tensor)
@@ -65,6 +71,10 @@ class ConvSeq2Seq(nn.Module):
         x = self.conv1(x)
         x = torch.tanh(x)
         x = self.conv2(x)
+        x = torch.tanh(x)
+        x = self.conv3(x)
+        x = torch.tanh(x)
+        x = self.conv4(x)
         return x
     
     # in: (batch_size, self.c_sum, seq_len // (21*21))
@@ -73,6 +83,10 @@ class ConvSeq2Seq(nn.Module):
         x = self.deconv1(x)
         x = torch.tanh(x)
         x = self.deconv2(x)
+        x = torch.tanh(x)
+        x = self.deconv3(x)
+        x = torch.tanh(x)
+        x = self.deconv4(x)
         return x
 
 
@@ -110,7 +124,7 @@ class ConvSeq2Seq(nn.Module):
         # each prediction takes shape, from loop: (n.shape[1] // self.sum_seg_size, batch_size, self.sum_seg_size)
         # permute s. t. (batch_size, n.shape[1] // self.sum_seg_size, self.sum_seg_size)
 
-        next_input = torch.zeros(n.shape[0], 1, self.c_sum, device=self.device)
+        next_input = torch.randn(n.shape[0], 1, self.c_sum, device=self.device)
         for t in range(n.shape[1] // self.sum_seg_size):
             # lstm expects: (batch_size, 1, self.c_sum)
             output, hidden = self.rnn_decoder(next_input, hidden)
@@ -122,11 +136,12 @@ class ConvSeq2Seq(nn.Module):
 
             predictions.append(pred.view(n.shape[0], -1))
 
-            if random.random() < self.teacher_forcing_ratio:
-                next_input = self.summarize(n[:,t*self.sum_seg_size:(t+1)*self.sum_seg_size].view(n.shape[0], 1, self.sum_seg_size))
-            else:
-                next_input = self.summarize(pred)
-            next_input = next_input.permute(0, 2, 1)
+            # if random.random() < self.teacher_forcing_ratio:
+            #     next_input = self.summarize(n[:,t*self.sum_seg_size:(t+1)*self.sum_seg_size].view(n.shape[0], 1, self.sum_seg_size))
+            # else:
+            #     next_input = self.summarize(pred)
+            # next_input = next_input.permute(0, 2, 1)
+            next_input = torch.randn(n.shape[0], 1, self.c_sum, device=self.device)
 
         predictions = torch.stack(predictions).permute(1, 0, 2).reshape(n.shape)
         return predictions
@@ -138,7 +153,7 @@ class ConvSeq2Seq(nn.Module):
         # each prediction takes shape, from loop: (n.shape[1] // self.sum_seg_size, batch_size, self.sum_seg_size)
         # permute s. t. (batch_size, n.shape[1] // self.sum_seg_size, self.sum_seg_size)
 
-        next_input = torch.zeros(batch_size, 1, self.c_sum, device=self.device)
+        next_input = torch.randn(batch_size, 1, self.c_sum, device=self.device)
         for t in range(length*self.sum_sample_rate):
             # lstm expects: (batch_size, 1, self.c_sum)
             output, hidden = self.rnn_decoder(next_input, hidden)
@@ -150,7 +165,7 @@ class ConvSeq2Seq(nn.Module):
 
             predictions.append(pred.view(batch_size, -1))
 
-            next_input = self.summarize(pred).permute(0, 2, 1)
+            next_input = torch.randn(batch_size, 1, self.c_sum, device=self.device)
 
         predictions = torch.stack(predictions).permute(1, 0, 2).reshape((batch_size, -1))
         return predictions
@@ -172,7 +187,7 @@ def train(data):
     for epoch in range(EPOCHS):
         batch_losses = []
         for _ in tqdm.tqdm(range(SEQ_IN_EPOCH)):
-            p, n = get_batch(data, MAX_LEN, BATCH_SIZE, device, segment_size=44100)
+            p, n = get_batch(data, MAX_LEN, BATCH_SIZE, device, segment_size=44100, full=True)
 
             optimizer.zero_grad()
             pred_n = model(p, n)

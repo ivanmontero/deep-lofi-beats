@@ -8,11 +8,11 @@ from loader import load
 from audio_processing import get_batch
 import matplotlib.pyplot as plt
 
-TRAINED_STATE = 'checkpoints/conv_lstm7.pt'
-IS_WINDOWS = True
+TRAINED_STATE = 'checkpoints/conv_lstm6.pt'
+IS_WINDOWS = False
 
 def load_model_from_checkpoint(checkpoint, device):
-    model = ConvSeq2Seq(256, device)
+    model = ConvSeq2Seq(512, device)
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     return model
 
@@ -24,13 +24,13 @@ def main():
     data, sample_rates = load(enforce_samplerate=44100)
     print(data)
     # 10 seconds of audio
-    seq_len = 30
+    seq_len = 60
 
     print('Loading trained model...')
     model = load_model_from_checkpoint(TRAINED_STATE, device)
     print('Performing inference...')
 
-    prev, _ = get_batch(data, 10, 1, device, segment_size=44100)
+    prev, _ = get_batch(data, 10, 1, device, segment_size=44100, full=True)
 
     print('Encoding seed sequence')
     hidden = model.encode(prev)

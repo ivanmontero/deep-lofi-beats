@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchaudio
+# import torchaudio
 import matplotlib.pyplot as plt
 import os
 import multiprocessing
@@ -16,42 +16,14 @@ import numpy as np
 DATA_DIR = "soundcloud/"
 OUTPUT_DIR = "outputs/"
 SONG_NPY_DIR = "npys/"
+# We have npys we can read from, so lets do that
+print('Reading data from npy files...')
 
-if len(os.listdir(SONG_NPY_DIR)) == 0:
-    # There aren't any npys, so we have to load the data
-    # with torchaudio.load and create the npys for future loads
-    print('Loading data with torchaudio...')
-
-    # Search the data directory for audio files
-    audio_file_names = []
-    for idx, f in enumerate(os.listdir(DATA_DIR)):
-        # Only load every other mp3 file
-        if idx % 2 == 0:
-            audio_file_names.append(os.path.join(DATA_DIR, f))
-
-    # Load the audio in a multithreaded manner.
-    def load_audio(filename):
-        return torchaudio.load(filename)
-
-    data = multiprocessing.Pool(os.cpu_count()).map(load_audio, audio_file_names)
-
-    # Save the ndarrays to npys
-    # Need to save array itself and sample
-    # rate in a 'numpy tuple'
-    print('Saving npys...')
-    for idx, d in enumerate(tqdm.tqdm(data)):
-        np_tuple = np.array([d[0].numpy(), d[1]])
-        np.save(os.path.join(SONG_NPY_DIR, 'song{}'.format(idx+1)), np_tuple)
-
-else:
-    # We have npys we can read from, so lets do that
-    print('Reading data from npy files...')
-
-    data = []
-    for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
-        loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)
-        data.append((torch.from_numpy(loaded[0]), loaded[1]))
-
+data = []
+for npy in tqdm.tqdm(os.listdir(SONG_NPY_DIR)):
+    loaded = np.load(os.path.join(SONG_NPY_DIR, npy), allow_pickle=True)[()]
+    key = str(44100)
+    data.append((torch.from_numpy(loaded[key][0]), loaded[key][1]))
 
 # TODO: Start creating window pairs out of the data: (prev, next)
 # TODO: Look at any useful transforms of the audio before processing
@@ -146,102 +118,94 @@ class AudioDataset(torch.utils.data.IterableDataset):
       iter_end = min(iter_start + per_worker, len(self.audio))
       return iter(MultiAudioIterator(self.audio[iter_start:iter_end], self.segment_size))
 
-
-
-
 # The input of the generator will be the previous audio segment, and noise. The output
 # will be the next audio segment to coninue the previous
 class Generator(nn.Module):
-  def __init__(self, noise_dim, segment_size):
+  def __init__(self, sigma, seconds, device):
     super(Generator, self).__init__()
     # TODO: Specify network layers here
-
-    self.noise_dim = noise_dim
-    self.segment_size = segment_size
+    self.sigma = sigma
+    self.seconds = seconds
     
-    # input shape will be (n x d)
-    # output shape will be (n x d/8)
-    # Each conv layer has a single input and output channel
-    # The kernel will obviously be 3x1 as per 1d convolutions
-    # Stride is 2 with one layer of padding to downsample by a factor
-    # of 1/2 in each layer
-    self.conv1 = nn.Conv1d(1, 1, 3, stride=2, padding=1)
-    self.conv2 = nn.Conv1d(1, 1, 3, stride=2, padding=1)
-    self.conv3 = nn.Conv1d(1, 1, 3, stride=2, padding=1)
+    self.c_int_sum= 8  # channels intermediate summary
+    self.c_sum = 16     # channels summarized
 
-    self.fc1 = nn.Linear((segment_size // 8) + noise_dim + 1, segment_size)
+    self.input_sample_rate = 44100
+    self.sum_sample_rate = 100
 
-  def forward(self, prev, next_):
-    # print(self.fc1)
-    # print(prev.size())
+    self.conv1 = nn.Conv1d(1, self.c_int_sum, kernel_size=21, stride=21).to(device)
+    self.conv2 = nn.Conv1d(self.c_int_sum, self.c_sum, kernel_size=21, stride=21).to(device)
 
-    d1, d2 = prev.size()
-    prev = prev.view(d1, 1, d2)
+    self.fc1 = nn.Linear(self.sum_sample_rate * self.seconds, self.sum_sample_rate * self.seconds).to(device)
+    self.fc2 = nn.Linear(self.sum_sample_rate * self.seconds, self.sum_sample_rate * self.seconds).to(device)
 
-    # print(prev.size())
+    self.deconv1 = nn.ConvTranspose1d(self.c_sum, self.c_int_sum, kernel_size=21, stride=21).to(device)
+    self.deconv2 = nn.ConvTranspose1d(self.c_int_sum, 4, kernel_size=7, stride=7).to(device)
+    self.deconv3 = nn.ConvTranspose1d(4, 1, kernel_size=3, stride=3).to(device)
 
-    prev = self.conv3(self.conv2(self.conv1(prev)))
-    prev = prev.view(d1, -1)
+  def forward(self, prev):
+    # Shrink
+    x = torch.tanh(self.conv2(torch.tanh(self.conv1(prev.view(prev.shape[0], 1, -1)))))
+    # Shape: (batch_size, self.c_sum, sum_sample_rate)
+    conv_shape = x.shape
 
-    # print(prev.size())
+    # Manipulate
+    x = torch.tanh(self.fc1(x.view(x.shape[0] * x.shape[1], -1)))
+    x = x + torch.randn_like(x) * self.sigma
+    x = torch.tanh(self.fc2(x)).view(conv_shape)
 
-    x = torch.cat((prev, next_), dim=-1)
-    # print(x.size())
-    x = self.fc1(x)
-    return x
+    # Expand
+    ret = self.deconv3(torch.tanh(self.deconv2(torch.tanh(self.deconv1(x))))).view(prev.shape[0], -1)
 
-
-
+    return torch.clamp(ret, -1, 1)
 
 # The input of the discriminator will be the previous and next audio segments. The
 # output a classification of the input signal concatenation being true audio 
 class Discriminator(nn.Module):
-  def __init__(self, segment_size):
+  def __init__(self, seconds, device):
     super(Discriminator, self).__init__()
-    self.segment_size = segment_size
-    # TODO: Specify network layers here
-    # Note: We should probably use the nn.Sequential
-    # paradigm since it makes coding up the forward pass
-    # much easier
-    self.model = nn.Sequential(
-        nn.Linear(segment_size*2, 1),
+    self.seconds = seconds
+    
+    self.c_int_sum= 4  # channels intermediate summary
+    self.c_sum = 8     # channels summarized
 
-        # Using sigmoid for binary classification
-        # of whether or not an audio segment is "real"
-        nn.Sigmoid(),
-    )
+    self.input_sample_rate = 44100
+    self.sum_sample_rate = 100
 
-  def forward(self, prev, next_):
-    x = torch.cat((prev, next_), dim=-1)
-    x = self.model(x)
+    self.conv1 = nn.Conv1d(1, self.c_int_sum, kernel_size=21, stride=21).to(device)
+    self.conv2 = nn.Conv1d(self.c_int_sum, self.c_sum, kernel_size=21, stride=21).to(device)
+
+    self.flatten_size = self.seconds * self.c_sum * self.sum_sample_rate * 2
+    self.fc1 = nn.Linear(self.flatten_size, self.flatten_size//2).to(device)
+    self.fc2 = nn.Linear(self.flatten_size//2, 1).to(device)
+
+
+  def forward(self, p, n):
+    # x1 = F.relu(self.conv2(F.relu(self.conv1())))
+    x = torch.cat((p, n), dim=-1)
+    x = F.relu(self.conv2(F.relu(self.conv1(x.view(p.shape[0], 1, -1))))).view(p.shape[0], -1)
+    x = torch.sigmoid(self.fc2(F.relu(self.fc1(x))))
     return x
 
-SAMPLE_RATE = 44100 // 4  # Samples per second
-SEGMENT_SIZE = int(SAMPLE_RATE)    
-LEARNING_RATE = 0.0002
-BATCH_SIZE = 4
-NOISE_DIM = int(SAMPLE_RATE/4)
-EPOCHS = 100
-
-
+SECONDS = 5
+SAMPLE_RATE = 44100
+SEGMENT_SIZE = int(SAMPLE_RATE)*SECONDS
+LEARNING_RATE = 0.0001
+BATCH_SIZE = 1
+SIGMA = 0.001
+EPOCHS = 10000
 
 dataset = AudioDataset(data, SEGMENT_SIZE, SAMPLE_RATE)
 
 train_loader = torch.utils.data.DataLoader(dataset,
-                                          batch_size=BATCH_SIZE,
-                                          num_workers=os.cpu_count())
-
-
-
-# TODO: Write training code
-# TODO: Write code to save the model
+                                          batch_size=BATCH_SIZE)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 print(device)
 
-generator = Generator(NOISE_DIM, SEGMENT_SIZE).to(device)
-discriminator = Discriminator(SEGMENT_SIZE).to(device)
+generator = Generator(SIGMA, SECONDS, device).to(device)
+discriminator = Discriminator(SECONDS, device).to(device)
 
 generator_opt = torch.optim.Adam(generator.parameters(), lr=LEARNING_RATE)
 discriminator_opt = torch.optim.Adam(discriminator.parameters(), lr=LEARNING_RATE)
@@ -254,28 +218,25 @@ d_losses = []
 
 
 for epoch in range(EPOCHS):
-  for batch_idx, (prev_, next_) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
-    prev_, next_ = prev_.to(device), next_.to(device)
+  for batch_idx, (p, n) in enumerate(tqdm.tqdm(train_loader, total=math.ceil(dataset.length/BATCH_SIZE))):
+    p, n = p.to(device), n.to(device)
 
     # print(batch_idx)
 
     # Ground truths
-    valid = torch.ones(prev_.shape[0], 1).to(device)
-    fake = torch.zeros(prev_.shape[0], 1).to(device)
+    valid = torch.ones(p.shape[0], 1).to(device)
+    fake = torch.zeros(p.shape[0], 1).to(device)
 
     # ========= Train generator =========
 
     # Zero the gradient buffers
     generator_opt.zero_grad()
 
-    # Sample noise as generator input
-    noise = torch.randn(prev_.shape[0], NOISE_DIM).to(device)
-
     # Generate the next audio segment
-    gen_next = generator(prev_, noise)
+    g_n = generator(p)
   
     # Compute the loss 
-    generator_loss = adversarial_loss(discriminator(prev_, gen_next), valid)
+    generator_loss = adversarial_loss(discriminator(p, g_n), valid)
 
     # Compute the gradient of the loss and update weights
     generator_loss.backward()
@@ -287,8 +248,8 @@ for epoch in range(EPOCHS):
     discriminator_opt.zero_grad()
 
     # Compute the loss
-    real_loss = adversarial_loss(discriminator(prev_, next_), valid)
-    fake_loss = adversarial_loss(discriminator(prev_, gen_next.detach()), fake)
+    real_loss = adversarial_loss(discriminator(p, n), valid)
+    fake_loss = adversarial_loss(discriminator(p, g_n.detach()), fake)
     discriminator_loss = (real_loss + fake_loss) / 2
 
     # Compute the gradient of the loss and update weights
@@ -302,9 +263,9 @@ for epoch in range(EPOCHS):
   # Print statistics
   print(f"\n[Epoch: {epoch+1}] [Discriminator Loss: {discriminator_loss.item()}] [Generator Loss: {generator_loss.item()}]\n")
 
-end = time.time()
-duration = round(end - start, 2)
-print(f'Finished training with {EPOCHS} epochs in {duration}s')
+# end = time.time()
+# duration = round(end - start, 2)
+# print(f'Finished training with {EPOCHS} epochs in {duration}s')
 
 # Graph losses
 plt.plot(np.arange(len(d_losses)), d_losses, label='Discriminator Loss')
@@ -316,26 +277,26 @@ plt.legend()
 plt.show()
 
 
-SEGMENTS = 100
+# SEGMENTS = 100
 
-segments = [torch.zeros(1, SEGMENT_SIZE).to(device)]
-for t in range(SEGMENTS):
-    noise = torch.randn(1, NOISE_DIM).to(device)
-    segments.append(generator(segments[-1], noise))
+# segments = [torch.zeros(1, SEGMENT_SIZE).to(device)]
+# for t in range(SEGMENTS):
+#     noise = torch.randn(1, NOISE_DIM).to(device)
+#     segments.append(generator(segments[-1], noise))
 
-result = torch.cat(segments[1:], axis=1).to("cpu")
-print(result.shape)
-print(result)
+# result = torch.cat(segments[1:], axis=1).to("cpu")
+# print(result.shape)
+# print(result)
 
-min_ = torch.min(result)
-max_ = torch.max(result)
+# min_ = torch.min(result)
+# max_ = torch.max(result)
 
-result = (result - min_) / (max_ - min_)
-result = 2*result - 1
+# result = (result - min_) / (max_ - min_)
+# result = 2*result - 1
 
-print(result)
+# print(result)
 
-torchaudio.save(os.path.join(OUTPUT_DIR, "test.mp3"), torch.cat((result, result), axis=0), SAMPLE_RATE)
+# torchaudio.save(os.path.join(OUTPUT_DIR, "test.mp3"), torch.cat((result, result), axis=0), SAMPLE_RATE)
 
 
 
