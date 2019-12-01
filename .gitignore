@@ -4,3 +4,5 @@
 *.npy
 *.mp3
 *.mid
+*.png
+*.pkl
