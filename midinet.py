@@ -16,7 +16,7 @@ SEQUENCE_LENGTH = 100
 BATCH_SIZE = 64
 FEATURE_SIZE = 512
 TEST_BATCH_SIZE = 256
-EPOCHS = 20
+EPOCHS = 200
 LEARNING_RATE = 0.002
 WEIGHT_DECAY = 0.0005
 USE_CUDA = True
@@ -210,8 +210,6 @@ class MidiDataset(torch.utils.data.Dataset):
         # Fix last batch
         self.elements_per_in_last_batch = (len(self.tokens) % (self.batch_size * self.sequence_length)) // self.batch_size
         self.normal_sequences = (len(self.tokens) // (self.sequence_length*self.batch_size))*self.batch_size
-        print(f"{self.elements_per_in_last_batch} {self.normal_sequences}")
-        print(len(self.tokens))
 
     def __len__(self):
         if self.elements_per_in_last_batch == 1:
@@ -240,9 +238,10 @@ class MidiNet(nn.Module):
         self.vocab_size = vocab_size
         self.feature_size = feature_size
         self.encoder = nn.Embedding(self.vocab_size, self.feature_size)
-        self.gru = nn.GRU(self.feature_size, self.feature_size, batch_first=True)
+        self.lstm = nn.LSTM(self.feature_size, self.feature_size, num_layers=2, batch_first=True)
         self.decoder = nn.Linear(self.feature_size, self.vocab_size)
         
+        # Can comment out below two lines.
         self.decoder.weight = self.encoder.weight
         self.decoder.bias.data.zero_()
         
@@ -250,7 +249,7 @@ class MidiNet(nn.Module):
     
     def forward(self, x, hidden_state=None):
         encoded = self.encoder(x)
-        out, hidden_state = self.gru(encoded, hidden_state)
+        out, hidden_state = self.lstm(encoded, hidden_state)
         decoded = self.decoder(out)
 
         return decoded, hidden_state
