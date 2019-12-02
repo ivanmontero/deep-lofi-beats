@@ -412,7 +412,7 @@ def eval_final_model(model, device):
         generated_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'sample')
         print('generated with sample\t', generated_beats)
 
-    for ii in range(5):
+    for ii in range(10):
         generated_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'beam')
         print('generated with beam\t', generated_beats)
 
