@@ -398,6 +398,24 @@ def test(model, device, test_loader):
         100. * correct / (len(test_loader.dataset) * test_loader.dataset.sequence_length)))
     return test_loss, test_accuracy
 
+def eval_final_model(model, device):
+    notes = [n for s in get_notes() for n in s]
+    n_vocab = len(set(notes))
+    pitchnames = sorted(set(item for item in notes))
+    note_to_int = dict((note, number) for number, note in enumerate(pitchnames))
+    int_to_note = {val: key for key, val in note_to_int.items()}
+    
+    seed_words = 'A3 G#3 B4 F#6 E-5 B4 G#3 G#3 F#6 E-5 F#6 B4 B4 G#3 F#6 G#3 B6 E-5 E-5 G#3 F#6 E-5 B4 E-5 F#6 G#3 B4 B4 E-5 G#3 E-5 G3 G#3 B4 E-5 F#6 E-5 F#6 E-5 B4 G#3 G3 G#3 F#6 B4 E-5 E-5 B4 F#6 E-5 B4 F#6 E-5 B4 B6 E-5 E-5 B4 E-5 F#6 E-5 G#3 F#6 F#6 E-5 G#3 B4 E-5 B4 F#6 F#6 E-5'.split(" ")
+    sequence_length = 200
+
+    for ii in range(10):
+        generated_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'sample')
+        print('generated with sample\t', generated_beats)
+
+    for ii in range(5):
+        generated_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'beam')
+        print('generated with beam\t', generated_beats)
+
 if __name__ == "__main__":
     notes = [n for s in get_notes() for n in s]
     n_vocab = len(set(notes))
