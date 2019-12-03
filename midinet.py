@@ -385,11 +385,11 @@ def test(model, device, test_loader):
             num_correct = correct_mask.sum().item()
             correct += num_correct
             # Comment this out to avoid printing test results
-            if batch_idx % 10 == 0:
-                print('Input\t%s\nGT\t%s\npred\t%s\n\n' % (
-                    " ".join(test_loader.dataset.to_notes(data[0].cpu().numpy())),
-                    " ".join(test_loader.dataset.to_notes(label[0].cpu().numpy())),
-                    " ".join(test_loader.dataset.to_notes(pred[0].cpu().numpy()))))
+            # if batch_idx % 10 == 0:
+            #     print('Input\t%s\nGT\t%s\npred\t%s\n\n' % (
+            #         " ".join(test_loader.dataset.to_notes(data[0].cpu().numpy())),
+            #         " ".join(test_loader.dataset.to_notes(label[0].cpu().numpy())),
+            #         " ".join(test_loader.dataset.to_notes(pred[0].cpu().numpy()))))
 
     test_loss /= len(test_loader)
     test_accuracy = 100. * correct / (len(test_loader.dataset) * test_loader.dataset.sequence_length)
@@ -479,15 +479,15 @@ if __name__ == "__main__":
             write_log(LOG_PATH, (train_losses, test_losses, test_accuracies))
             model.save_best_model(test_accuracy, 'checkpoints/%03d.pt' % epoch)
             # seed_words = 'Harry Potter, Voldemort, and Dumbledore walk into a bar. '
-            seed_words = 'A3 G#3 B4 F#6 E-5 B4 G#3 G#3 F#6 E-5 F#6 B4 B4 G#3 F#6 G#3 B6 E-5 E-5 G#3 F#6 E-5 B4 E-5 F#6 G#3 B4 B4 E-5 G#3 E-5 G3 G#3 B4 E-5 F#6 E-5 F#6 E-5 B4 G#3 G3 G#3 F#6 B4 E-5 E-5 B4 F#6 E-5 B4 F#6 E-5 B4 B6 E-5 E-5 B4 E-5 F#6 E-5 G#3 F#6 F#6 E-5 G#3 B4 E-5 B4 F#6 F#6 E-5'.split(" ")
-            generated_sentence = generate_beats(model, device, seed_words, 200, note_to_int, int_to_note, 'max')
-            print('generated max\t\t', " ".join(generated_sentence))
-            for ii in range(10):
-                generated_sentence = generate_beats(model, device, seed_words, 200, note_to_int, int_to_note, 'sample')
-                print('generated sample\t', " ".join(generated_sentence))
-            generated_sentence = generate_beats(model, device, seed_words, 200, note_to_int, int_to_note, 'beam')
-            print('generated beam\t\t', " ".join(generated_sentence))
-            print('')
+            # seed_words = 'A3 G#3 B4 F#6 E-5 B4 G#3 G#3 F#6 E-5 F#6 B4 B4 G#3 F#6 G#3 B6 E-5 E-5 G#3 F#6 E-5 B4 E-5 F#6 G#3 B4 B4 E-5 G#3 E-5 G3 G#3 B4 E-5 F#6 E-5 F#6 E-5 B4 G#3 G3 G#3 F#6 B4 E-5 E-5 B4 F#6 E-5 B4 F#6 E-5 B4 B6 E-5 E-5 B4 E-5 F#6 E-5 G#3 F#6 F#6 E-5 G#3 B4 E-5 B4 F#6 F#6 E-5'.split(" ")
+            # generated_sentence = generate_beats(model, device, seed_words, 200, note_to_int, int_to_note, 'max')
+            # print('generated max\t\t', " ".join(generated_sentence))
+            # for ii in range(10):
+            #     generated_sentence = generate_beats(model, device, seed_words, 200, note_to_int, int_to_note, 'sample')
+            #     print('generated sample\t', " ".join(generated_sentence))
+            # generated_sentence = generate_beats(model, device, seed_words, 200, note_to_int, int_to_note, 'beam')
+            # print('generated beam\t\t', " ".join(generated_sentence))
+            # print('')
 
     except KeyboardInterrupt as ke:
         print('Interrupted')
