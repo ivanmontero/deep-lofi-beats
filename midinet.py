@@ -447,7 +447,7 @@ if __name__ == "__main__":
     num_workers = multiprocessing.cpu_count()
     print('num workers:', num_workers)
 
-    kwargs = {'num_workers': num_workers,
+    kwargs = {'num_workers': 0,
               'pin_memory': True} if use_cuda else {}
 
     train_loader = torch.utils.data.DataLoader(data_train, batch_size=BATCH_SIZE,
