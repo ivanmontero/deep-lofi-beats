@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.utils.data
 import multiprocessing
 import os
 import tqdm
@@ -417,7 +418,15 @@ def eval_final_model(model, device):
         print('generated with beam\t', generated_beats)
 
 if __name__ == "__main__":
-    notes = [n for s in get_notes() for n in s]
+    if not os.path.exists('notes.txt'):
+        print("Reading midi files")
+        notes = [n for s in get_notes() for n in s]
+        with open("notes.txt", "w+") as f:
+            f.write(" ".join(notes))
+    else:
+        print("Restoring notes")
+        with open('notes.txt', 'r') as f:
+            notes = f.read().split(" ")
     n_vocab = len(set(notes))
     pitchnames = sorted(set(item for item in notes))
     note_to_int = dict((note, number) for number, note in enumerate(pitchnames))
