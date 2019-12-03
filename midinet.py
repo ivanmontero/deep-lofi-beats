@@ -280,23 +280,25 @@ class MidiNet(nn.Module):
         restore(self, file_path)
 
 
-def max_sampling_strategy(sequence_length, model, output, hidden):
+def max_sampling_strategy(sequence_length, model, output, hidden, temperature):
     outputs = []
     for ii in range(sequence_length):
         topv, topi = torch.topk(output, 1)
         outputs.append(topi.item())
-        output, hidden = model.inference(topi, hidden, TEMPERATURE)
+        output, hidden = model.inference(topi, hidden, temperature)
     return outputs
-    
-def sample_sampling_strategy(sequence_length, model, output, hidden):
+
+
+def sample_sampling_strategy(sequence_length, model, output, hidden, temperature):
     outputs = []
     for ii in range(sequence_length):
         s = torch.multinomial(output, 1)
         outputs.append(s.item())
-        output, hidden = model.inference(s, hidden, TEMPERATURE)
+        output, hidden = model.inference(s, hidden, temperature)
     return outputs
 
-def beam_sampling_strategy(sequence_length, beam_width, model, output, hidden):
+
+def beam_sampling_strategy(sequence_length, beam_width, model, output, hidden, temperature):
     beams = [([], output, hidden, 0)]
     for ii in range(sequence_length):
         new_beams = []
@@ -309,13 +311,13 @@ def beam_sampling_strategy(sequence_length, beam_width, model, output, hidden):
 
         for i in range(len(new_beams)):
             b = new_beams[i]
-            output, hidden = model.inference(b[0][-1], b[2], TEMPERATURE)
+            output, hidden = model.inference(b[0][-1], b[2], temperature)
             new_beams[i] = (b[0], output, hidden, b[3])
         beams = new_beams
     return beams[0][0]
 
 
-def generate_beats(model, device, seed_notes, sequence_length, note_to_int, int_to_note, sampling_strategy='max', beam_width=BEAM_WIDTH):
+def generate_beats(model, device, seed_notes, sequence_length, note_to_int, int_to_note, sampling_strategy='max', beam_width=BEAM_WIDTH, temperature=TEMPERATURE):
     model.eval()
 
     with torch.no_grad():
@@ -328,13 +330,13 @@ def generate_beats(model, device, seed_notes, sequence_length, note_to_int, int_
             output, hidden = model.inference(data, hidden)
         
         if sampling_strategy == 'max':
-            outputs = max_sampling_strategy(sequence_length, model, output, hidden)
+            outputs = max_sampling_strategy(sequence_length, model, output, hidden, temperature)
 
         elif sampling_strategy == 'sample':
-            outputs = sample_sampling_strategy(sequence_length, model, output, hidden)
+            outputs = sample_sampling_strategy(sequence_length, model, output, hidden, temperature)
 
         elif sampling_strategy == 'beam':
-            outputs = beam_sampling_strategy(sequence_length, beam_width, model, output, hidden)
+            outputs = beam_sampling_strategy(sequence_length, beam_width, model, output, hidden, temperature)
 
         return [int_to_note[i.cpu().item() if torch.is_tensor(i) else i] for i in outputs]
 
@@ -399,23 +401,6 @@ def test(model, device, test_loader):
         100. * correct / (len(test_loader.dataset) * test_loader.dataset.sequence_length)))
     return test_loss, test_accuracy
 
-def eval_final_model(model, device):
-    notes = [n for s in get_notes() for n in s]
-    n_vocab = len(set(notes))
-    pitchnames = sorted(set(item for item in notes))
-    note_to_int = dict((note, number) for number, note in enumerate(pitchnames))
-    int_to_note = {val: key for key, val in note_to_int.items()}
-    
-    seed_words = 'A3 G#3 B4 F#6 E-5 B4 G#3 G#3 F#6 E-5 F#6 B4 B4 G#3 F#6 G#3 B6 E-5 E-5 G#3 F#6 E-5 B4 E-5 F#6 G#3 B4 B4 E-5 G#3 E-5 G3 G#3 B4 E-5 F#6 E-5 F#6 E-5 B4 G#3 G3 G#3 F#6 B4 E-5 E-5 B4 F#6 E-5 B4 F#6 E-5 B4 B6 E-5 E-5 B4 E-5 F#6 E-5 G#3 F#6 F#6 E-5 G#3 B4 E-5 B4 F#6 F#6 E-5'.split(" ")
-    sequence_length = 200
-
-    for ii in range(10):
-        generated_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'sample')
-        print('generated with sample\t', generated_beats)
-
-    for ii in range(10):
-        generated_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'beam')
-        print('generated with beam\t', generated_beats)
 
 if __name__ == "__main__":
     if not os.path.exists('notes.txt'):

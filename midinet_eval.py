@@ -13,7 +13,7 @@ from midinet import generate_beats
 FEATURE_SIZE = 512
 WEIGHTS_PATH = 'checkpoints/midinet.pt' #TODO: add in correct weight file for reconstruction
 # SEQUENCE_LENGTH = 200
-# TEMPERATURE
+TEMPERATURE = 3
 
 notes = [n for s in get_notes() for n in s]
 n_vocab = len(set(notes))
@@ -30,9 +30,9 @@ def eval_final_model(model, device):
     seed_words = 'A3 G#3 B4 F#6 E-5 B4 G#3 G#3 F#6 E-5 F#6 B4 B4 G#3 F#6 G#3 B6 E-5 E-5 G#3 F#6 E-5 B4 E-5 F#6 G#3 B4 B4 E-5 G#3 E-5 G3 G#3 B4 E-5 F#6 E-5 F#6 E-5 B4 G#3 G3 G#3 F#6 B4 E-5 E-5 B4 F#6 E-5 B4 F#6 E-5 B4 B6 E-5 E-5 B4 E-5 F#6 E-5 G#3 F#6 F#6 E-5 G#3 B4 E-5 B4 F#6 F#6 E-5'.split(
         " ")
     sequence_length = 256
-    sample_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'sample')
+    sample_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'sample', TEMPERATURE)
     print('generated with sample\t', sample_beats)
-    beam_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'beam')
+    beam_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'beam', TEMPERATURE)
     print('generated with beam\t', beam_beats)
     return sample_beats, beam_beats
 
