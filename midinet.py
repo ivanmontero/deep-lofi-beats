@@ -317,7 +317,7 @@ def beam_sampling_strategy(sequence_length, beam_width, model, output, hidden, t
     return beams[0][0]
 
 
-def generate_beats(model, device, seed_notes, sequence_length, note_to_int, int_to_note, sampling_strategy='max', beam_width=BEAM_WIDTH, temperature=TEMPERATURE):
+def generate_beats(model, device, seed_notes, sequence_length, note_to_int, int_to_note, sampling_strategy='max', beam_width=BEAM_WIDTH, temperature=TEMPERATURE, rando=False):
     model.eval()
 
     with torch.no_grad():
@@ -325,9 +325,14 @@ def generate_beats(model, device, seed_notes, sequence_length, note_to_int, int_
 
         # Computes the initial hidden state from the prompt (seed words).
         hidden = None
-        for ind in seed_notes_arr:
-            data = ind.to(device)
-            output, hidden = model.inference(data, hidden)
+        if rando:
+            hidden = (torch.randn(2, 1, model.feature_size, device=device),
+                      torch.randn(2, 1, model.feature_size, device=device))
+            output = torch.ones((1, model.vocab_size)).to(device) / model.vocab_size
+        else:
+            for ind in seed_notes_arr:
+                data = ind.to(device)
+                output, hidden = model.inference(data, hidden)
         
         if sampling_strategy == 'max':
             outputs = max_sampling_strategy(sequence_length, model, output, hidden, temperature)
