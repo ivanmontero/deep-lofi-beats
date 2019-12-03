@@ -25,9 +25,9 @@ def eval_final_model(model, note_to_int, int_to_note, device, rando=True):
     seed_words = 'A3 G#3 B4 F#6 E-5 B4 G#3 G#3 F#6 E-5 F#6 B4 B4 G#3 F#6 G#3 B6 E-5 E-5 G#3 F#6 E-5 B4 E-5 F#6 G#3 B4 B4 E-5 G#3 E-5 G3 G#3 B4 E-5 F#6 E-5 F#6 E-5 B4 G#3 G3 G#3 F#6 B4 E-5 E-5 B4 F#6 E-5 B4 F#6 E-5 B4 B6 E-5 E-5 B4 E-5 F#6 E-5 G#3 F#6 F#6 E-5 G#3 B4 E-5 B4 F#6 F#6 E-5'.split(
         " ")
     sequence_length = 1024
-    sample_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'sample', TEMPERATURE, rando=rando)
+    sample_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, sampling_strategy='sample', temperature=TEMPERATURE, rando=rando)
     print('generated with sample\t', sample_beats)
-    beam_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, 'beam', TEMPERATURE, rando=rando)
+    beam_beats = generate_beats(model, device, seed_words, sequence_length, note_to_int, int_to_note, sampling_strategy='beam', temperature=TEMPERATURE, rando=rando)
     print('generated with beam\t', beam_beats)
     return sample_beats, beam_beats
 
